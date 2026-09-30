@@ -1,0 +1,208 @@
+{
+  "scan_log_id": 95,
+  "mode": "multi_object",
+  "experimental": true,
+  "image": {
+    "width": 640,
+    "height": 640
+  },
+  "detections": [
+    {
+      "id": "object_1",
+      "detector_label": "bottle",
+      "detector_confidence": 0.9623,
+      "bounding_box": {
+        "x": 160.8,
+        "y": 243.04,
+        "width": 161.41,
+        "height": 259.5
+      },
+      "classification_status": "classified",
+      "classification_label": "glass_bottle",
+      "classification_confidence": 0.8731184601783752,
+      "unclassified_reason": null,
+      "top_predictions": [
+        {
+          "ai_label": "glass_bottle",
+          "confidence": 0.8731184601783752
+        },
+        {
+          "ai_label": "plastic_bottle",
+          "confidence": 0.1266758143901825
+        },
+        {
+          "ai_label": "plastic_container",
+          "confidence": 0.0001911718281917274
+        }
+      ],
+      "item_status": "resolved",
+      "item": {
+        "id": 10,
+        "name": "Glass Bottle",
+        "category": "Glass",
+        "ai_label": "glass_bottle"
+      }
+    },
+    {
+      "id": "object_2",
+      "detector_label": "bottle",
+      "detector_confidence": 0.94,
+      "bounding_box": {
+        "x": 311.04,
+        "y": 233.91,
+        "width": 159.04,
+        "height": 275.77
+      },
+      "classification_status": "classified",
+      "classification_label": "glass_bottle",
+      "classification_confidence": 0.9448018074035645,
+      "unclassified_reason": null,
+      "top_predictions": [
+        {
+          "ai_label": "glass_bottle",
+          "confidence": 0.9448018074035645
+        },
+        {
+          "ai_label": "plastic_bottle",
+          "confidence": 0.05469218268990517
+        },
+        {
+          "ai_label": "plastic_container",
+          "confidence": 0.0004767670761793852
+        }
+      ],
+      "item_status": "resolved",
+      "item": {
+        "id": 10,
+        "name": "Glass Bottle",
+        "category": "Glass",
+        "ai_label": "glass_bottle"
+      }
+    },
+    {
+      "id": "object_3",
+      "detector_label": "bottle",
+      "detector_confidence": 0.9179,
+      "bounding_box": {
+        "x": 437.28,
+        "y": 240.8,
+        "width": 178.95,
+        "height": 267.96
+      },
+      "classification_status": "classified",
+      "classification_label": "plastic_bottle",
+      "classification_confidence": 0.826778769493103,
+      "unclassified_reason": null,
+      "top_predictions": [
+        {
+          "ai_label": "plastic_bottle",
+          "confidence": 0.826778769493103
+        },
+        {
+          "ai_label": "glass_bottle",
+          "confidence": 0.17219515144824982
+        },
+        {
+          "ai_label": "plastic_container",
+          "confidence": 0.0010148489382117987
+        }
+      ],
+      "item_status": "resolved",
+      "item": {
+        "id": 1,
+        "name": "Plastic Bottle",
+        "category": "Plastic",
+        "ai_label": "plastic_bottle"
+      }
+    },
+    {
+      "id": "object_4",
+      "detector_label": "bottle",
+      "detector_confidence": 0.8656,
+      "bounding_box": {
+        "x": 26.15,
+        "y": 226.43,
+        "width": 162.97,
+        "height": 271.3
+      },
+      "classification_status": "classified",
+      "classification_label": "glass_bottle",
+      "classification_confidence": 0.9683286547660828,
+      "unclassified_reason": null,
+      "top_predictions": [
+        {
+          "ai_label": "glass_bottle",
+          "confidence": 0.9683286547660828
+        },
+        {
+          "ai_label": "plastic_bottle",
+          "confidence": 0.028401434421539307
+        },
+        {
+          "ai_label": "plastic_container",
+          "confidence": 0.0031978285405784845
+        }
+      ],
+      "item_status": "resolved",
+      "item": {
+        "id": 10,
+        "name": "Glass Bottle",
+        "category": "Glass",
+        "ai_label": "glass_bottle"
+      }
+    }
+  ],
+  "summary": {
+    "total_detected_objects": 4,
+    "classified_objects": 4,
+    "unclassified_objects": 0,
+    "resolved_objects": 4,
+    "unresolved_objects": 0,
+    "needs_manual_review": false,
+    "materials": [
+      {
+        "ai_label": "glass_bottle",
+        "suggested_quantity": 3,
+        "item_status": "resolved",
+        "item": {
+          "id": 10,
+          "name": "Glass Bottle",
+          "category": "Glass",
+          "ai_label": "glass_bottle"
+        }
+      },
+      {
+        "ai_label": "plastic_bottle",
+        "suggested_quantity": 1,
+        "item_status": "resolved",
+        "item": {
+          "id": 1,
+          "name": "Plastic Bottle",
+          "category": "Plastic",
+          "ai_label": "plastic_bottle"
+        }
+      }
+    ]
+  },
+  "suggested_items": [
+    {
+      "item_id": 10,
+      "quantity": 3
+    },
+    {
+      "item_id": 1,
+      "quantity": 1
+    }
+  ],
+  "quantity_note": "AI-suggested quantities only \u2014 please check and correct them. Your confirmed quantities are what your estimate and reward are calculated from.",
+  "models": {
+    "detector_model_version": "retinanet_efficientnetb0_640_lr_decay_best_e27",
+    "detector_confidence_threshold": 0.5,
+    "classifier_model_version": "ecoxchange_efficientnet_b0_8class"
+  },
+  "ai_timing": {
+    "detector_ms": 697.74,
+    "classification_ms": 3861.25,
+    "total_ms": 4858.28
+  }
+}
