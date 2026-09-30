@@ -19,16 +19,23 @@
 class ApiConfig {
   ApiConfig._();
 
-  /// Android emulator's alias for the host machine's `localhost`.
-  /// For a physical device on the same Wi-Fi, replace with the host
-  /// machine's LAN IP (e.g. `http://192.168.1.23`) — everything else in
-  /// the app reads only [baseUrl], so this is the one line to change.
-  static const String baseUrl = 'http://10.0.2.2';
+  /// Where the app connects. Default: the Android EMULATOR's alias for the
+  /// host machine (`10.0.2.2`) — a plain `flutter run` on the emulator needs
+  /// nothing extra.
+  ///
+  /// A PHYSICAL device on the same Wi-Fi cannot use `10.0.2.2` (it only
+  /// exists inside the emulator). Pass the development machine's LAN address
+  /// at build time instead, e.g.
+  /// `flutter run -d DEVICE_ID --dart-define=API_BASE_URL=http://192.168.1.23`
+  /// so no machine-specific IP is ever committed. Everything else in the app
+  /// reads only [baseUrl].
+  static const String baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2');
 
-  /// Sent as the `Host` header on every request — see class docblock.
-  /// Irrelevant (and harmless) once [baseUrl] points at a real domain
-  /// (production or a LAN IP with its own vhost), so this can stay as-is.
-  static const String devHost = 'ecoxchange.test';
+  /// Sent as the `Host` header on every request — see class docblock. The
+  /// same header is what lets a LAN IP reach the right Laragon virtual host
+  /// too (without it Apache answers with its default site). Override with
+  /// `--dart-define=API_HOST=...` only if the local vhost name differs.
+  static const String devHost = String.fromEnvironment('API_HOST', defaultValue: 'ecoxchange.test');
 
   static const String apiPrefix = '/api/v1';
 

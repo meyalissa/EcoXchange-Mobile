@@ -127,6 +127,47 @@ The app reaches Laravel at `http://10.0.2.2` (the emulator's alias for the host 
 sends `Host: ecoxchange.test` so Laragon's name-based virtual host answers. This is in
 `lib/core/api/api_config.dart`; don't change it for the emulator.
 
+## Run on a physical Android phone (same Wi-Fi)
+
+`10.0.2.2` only exists inside the emulator, so a real phone shows "Could not connect to
+EcoXchange…". Point the app at the development machine's **LAN address** at build time — nothing
+in the repository changes and the emulator default stays `10.0.2.2`:
+
+```bat
+:: 1. Find the PC's Wi-Fi IPv4 address (the adapter that has a default gateway)
+ipconfig
+
+:: 2. Check the phone is connected (USB debugging) and note its device id
+flutter devices
+
+:: 3. Run with the PC's LAN address (example values)
+flutter run -d <device-id> --dart-define=API_BASE_URL=http://192.168.1.23
+```
+
+- The `Host: ecoxchange.test` header is still sent, and it is required: without it Apache
+  answers the LAN IP with its default site (404 for `/api/...`). If your Laragon virtual host
+  has another name, add `--dart-define=API_HOST=<name>`.
+- The LAN address can change when you reconnect to Wi-Fi; check `ipconfig` again if the phone
+  stops connecting.
+- Uploaded photos are also loaded through the same address (`AppNetworkImage`).
+
+**Checks, from the PC:**
+
+| Check | Command | Expected |
+|---|---|---|
+| Laravel via LAN IP | `curl -s -o NUL -w "%{http_code}" -H "Host: ecoxchange.test" -H "Accept: application/json" http://<LAN-IP>/api/v1/customer/items` | `401` |
+| Apache on all interfaces | `netstat -ano \| findstr ":80 .*LISTENING"` | `0.0.0.0:80` (not only `127.0.0.1:80`) |
+| From the phone itself | `adb -s <device-id> shell "printf 'GET /api/v1/customer/items HTTP/1.1\r\nHost: ecoxchange.test\r\nConnection: close\r\n\r\n' \| nc -w 5 <LAN-IP> 80 \| head -1"` | `HTTP/1.1 401 Unauthorized` |
+
+If the check from the phone fails while the PC checks pass:
+
+- **Windows Firewall:** `httpd.exe` needs an inbound **Allow** rule for the profile of the Wi-Fi
+  network (Laragon's "Apache HTTP Server" rules; Wi-Fi networks are often classed *Public*).
+  A failing `ping` alone doesn't matter — ICMP is commonly blocked while port 80 is open.
+- **Wi-Fi client isolation:** some campus/guest networks block device-to-device traffic. Use a
+  home network or a phone hotspot instead.
+- Phone and PC must be on the **same** network (check the phone's IP is in the same subnet).
+
 ## Stop everything
 
 1. **Flutter:** press `q` in the `flutter run` window. This stops the app; the emulator keeps
