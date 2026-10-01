@@ -1,77 +1,84 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/widgets/eco_app_bar.dart';
+import '../../../core/widgets/eco_bottom_nav.dart';
 import '../../auth/presentation/auth_provider.dart';
+import '../data/repositories/rider_dashboard_repository.dart';
+import '../data/repositories/rider_pickup_repository.dart';
+import '../data/repositories/rider_profile_repository.dart';
+import 'providers/rider_dashboard_provider.dart';
+import 'providers/rider_pickup_list_provider.dart';
+import 'providers/rider_profile_provider.dart';
+import 'screens/rider_dashboard_screen.dart';
+import 'screens/rider_pickup_list_screen.dart';
+import 'screens/rider_profile_screen.dart';
 
-/// EcoXchange Mobile — Rider application foundation (Phase 4C.1).
-/// See CustomerHomeScreen's docblock — same purpose, rider side.
-class RiderHomeScreen extends StatelessWidget {
+/// EcoXchange Mobile — Rider application shell (Phase R1). Same structure
+/// as CustomerHomeScreen: bottom-tab navigation over the real Rider read
+/// endpoints — Home (`/rider/dashboard`), Pickups (`/rider/pickups`) and
+/// Profile (`/rider/profile`). Pickup detail is pushed from Home/Pickups.
+///
+/// The screen-level ChangeNotifierProviders are created once here (each
+/// from a repository registered in main.dart) and kept alive across tab
+/// switches by the IndexedStack, so switching tabs never re-fetches.
+/// Pickup state-changing actions are a later phase.
+class RiderHomeScreen extends StatefulWidget {
   const RiderHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-    final user = auth.user!;
-    final riderStatus = user.riderProfile?.riderStatus;
+  State<RiderHomeScreen> createState() => _RiderHomeScreenState();
+}
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('EcoXchange Rider'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Log out',
-            onPressed: () => context.read<AuthProvider>().logout(),
-          ),
-        ],
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircleAvatar(
-                radius: 36,
-                backgroundColor: Color(0xFFE8F5E2),
-                child: Icon(Icons.pedal_bike, size: 36, color: Color(0xFF136B40)),
-              ),
-              const SizedBox(height: 16),
-              Text('Welcome, ${user.name}', style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
-              const SizedBox(height: 4),
-              const Text('Rider Dashboard', style: TextStyle(color: Colors.black54)),
-              const SizedBox(height: 24),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Signed in as', style: Theme.of(context).textTheme.labelMedium),
-                      const SizedBox(height: 4),
-                      Text(user.email),
-                      if (riderStatus != null) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(Icons.circle, size: 10, color: riderStatus == 'available' ? Colors.green : Colors.grey),
-                            const SizedBox(width: 6),
-                            Text('Status: $riderStatus'),
-                          ],
-                        ),
-                      ],
-                    ],
+class _RiderHomeScreenState extends State<RiderHomeScreen> {
+  int _tabIndex = 0;
+
+  static const _titles = ['Home', 'My Pickups', 'My Profile'];
+
+  /// Home renders its own gradient header (with greeting and logout), so
+  /// the shell's app bar is only shown on the other tabs.
+  bool _hasOwnHeader(int index) => index == 0;
+
+  void _goToTab(int index) => setState(() => _tabIndex = index);
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => RiderDashboardProvider(context.read<RiderDashboardRepository>())),
+        ChangeNotifierProvider(create: (context) => RiderPickupListProvider(context.read<RiderPickupRepository>())),
+        ChangeNotifierProvider(create: (context) => RiderProfileProvider(context.read<RiderProfileRepository>())),
+      ],
+      child: Scaffold(
+        appBar: _hasOwnHeader(_tabIndex)
+            ? null
+            : EcoAppBar(
+                title: _titles[_tabIndex],
+                showBackButton: false,
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.logout, size: 20),
+                    tooltip: 'Log out',
+                    onPressed: () => context.read<AuthProvider>().logout(),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'Foundation phase — assigned pickups and actions arrive in a later phase.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.black45, fontSize: 12),
-              ),
-            ],
-          ),
+        body: IndexedStack(
+          index: _tabIndex,
+          children: [
+            RiderDashboardScreen(onSeeAllPickups: () => _goToTab(1)),
+            const RiderPickupListScreen(),
+            const RiderProfileScreen(),
+          ],
+        ),
+        bottomNavigationBar: EcoBottomNav(
+          currentIndex: _tabIndex,
+          onTap: _goToTab,
+          items: const [
+            EcoNavItem(icon: Icons.home_outlined, activeIcon: Icons.home, label: 'Home'),
+            EcoNavItem(icon: Icons.two_wheeler_outlined, activeIcon: Icons.two_wheeler, label: 'Pickups'),
+            EcoNavItem(icon: Icons.person_outline, activeIcon: Icons.person, label: 'Profile'),
+          ],
         ),
       ),
     );

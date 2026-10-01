@@ -33,13 +33,44 @@ class EcoXchangeApp extends StatelessWidget {
             case AuthStatus.authenticated:
               final user = auth.user!;
               if (user.isRider) return const RiderHomeScreen();
-              // Backend mobile login only ever issues a token to
-              // customer/rider accounts (AuthController::MOBILE_ROLES) —
-              // customer is the only remaining real case, not a fallback
-              // guess.
-              return const CustomerHomeScreen();
+              if (user.isCustomer) return const CustomerHomeScreen();
+              // Backend mobile login only issues tokens to customer/rider
+              // accounts (AuthController::MOBILE_ROLES, 403 otherwise), so
+              // this is a safety net — never a guess into another role's app.
+              return const UnsupportedRoleScreen();
           }
         },
+      ),
+    );
+  }
+}
+
+/// Shown only if an authenticated session somehow carries a role the
+/// mobile app doesn't serve. Offers logout; no role's screens are shown.
+class UnsupportedRoleScreen extends StatelessWidget {
+  const UnsupportedRoleScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.block_outlined, size: 40, color: Colors.black38),
+              const SizedBox(height: 12),
+              const Text(
+                'This account type is not supported in the EcoXchange mobile app. Please use the web portal.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black54),
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton(onPressed: () => context.read<AuthProvider>().logout(), child: const Text('Log Out')),
+            ],
+          ),
+        ),
       ),
     );
   }

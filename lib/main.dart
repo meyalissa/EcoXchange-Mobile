@@ -13,6 +13,9 @@ import 'features/customer/data/repositories/customer_pickup_booking_repository.d
 import 'features/customer/data/repositories/customer_pickup_repository.dart';
 import 'features/customer/data/repositories/customer_recycling_centre_repository.dart';
 import 'features/customer/data/repositories/customer_reward_repository.dart';
+import 'features/rider/data/repositories/rider_dashboard_repository.dart';
+import 'features/rider/data/repositories/rider_pickup_repository.dart';
+import 'features/rider/data/repositories/rider_profile_repository.dart';
 
 /// EcoXchange Mobile — composition root. Wires the layers explained in the
 /// Phase 4C.1/4C.2 reports:
@@ -51,6 +54,10 @@ void main() {
         Provider<CustomerRewardRepository>.value(value: CustomerRewardRepository(apiClient)),
         Provider<CustomerAddressRepository>.value(value: CustomerAddressRepository(apiClient)),
         Provider<CustomerPickupBookingRepository>.value(value: CustomerPickupBookingRepository(apiClient)),
+        // Rider (Phase R1, read-only) — same shared ApiClient.
+        Provider<RiderDashboardRepository>.value(value: RiderDashboardRepository(apiClient)),
+        Provider<RiderPickupRepository>.value(value: RiderPickupRepository(apiClient)),
+        Provider<RiderProfileRepository>.value(value: RiderProfileRepository(apiClient)),
       ],
       child: const EcoXchangeApp(),
     ),
