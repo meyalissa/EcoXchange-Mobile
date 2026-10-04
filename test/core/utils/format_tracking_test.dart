@@ -49,9 +49,29 @@ void main() {
       expect(formatLocationFreshness(now.subtract(const Duration(minutes: 59)), now: now), 'Last updated 59 min ago');
     });
 
-    test('an hour or more ago', () {
+    test('an hour or more ago, staying in hours until a full day', () {
       final now = DateTime(2026, 10, 3, 12);
       expect(formatLocationFreshness(now.subtract(const Duration(hours: 2)), now: now), 'Last updated 2h ago');
+      expect(formatLocationFreshness(now.subtract(const Duration(hours: 23)), now: now), 'Last updated 23h ago');
+    });
+
+    test('a day or more ago, staying in days until a full week', () {
+      final now = DateTime(2026, 10, 3, 12);
+      expect(formatLocationFreshness(now.subtract(const Duration(days: 1)), now: now), 'Last updated 1d ago');
+      expect(formatLocationFreshness(now.subtract(const Duration(days: 6)), now: now), 'Last updated 6d ago');
+    });
+
+    test('a week or more ago, staying in weeks until a full month', () {
+      final now = DateTime(2026, 10, 3, 12);
+      expect(formatLocationFreshness(now.subtract(const Duration(days: 7)), now: now), 'Last updated 1w ago');
+      expect(formatLocationFreshness(now.subtract(const Duration(days: 29)), now: now), 'Last updated 4w ago');
+    });
+
+    test('long-stale data (e.g. restored demo data) reads in months, never a raw hour count', () {
+      final now = DateTime(2026, 10, 3, 12);
+      expect(formatLocationFreshness(now.subtract(const Duration(days: 30)), now: now), 'Last updated 1mo ago');
+      // The original bug report: ~2527 hours (~105 days) must never render as "2527h ago".
+      expect(formatLocationFreshness(now.subtract(const Duration(hours: 2527)), now: now), 'Last updated 3mo ago');
     });
   });
 }

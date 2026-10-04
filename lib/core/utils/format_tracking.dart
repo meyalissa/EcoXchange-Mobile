@@ -23,15 +23,18 @@ String formatTrackingDuration(int seconds) {
   return remainingMinutes == 0 ? '$hours hr' : '$hours hr $remainingMinutes min';
 }
 
-/// "Updated just now" within the first minute, else "Last updated N min
-/// ago" / "Last updated Nh ago" — never claims "live" once the rider's
-/// device has genuinely stopped sending updates.
+/// "Updated just now" within the first minute, then minutes, hours, days,
+/// weeks and finally months — never claims "live" once the rider's device
+/// has genuinely stopped sending updates, and never shows an absurd raw
+/// hour count (e.g. "2527h ago") for long-stale restored/demo data.
 String formatLocationFreshness(DateTime updatedAt, {DateTime? now}) {
   final reference = now ?? DateTime.now();
   final diff = reference.difference(updatedAt.toLocal()).abs();
 
   if (diff.inSeconds < 60) return 'Updated just now';
   if (diff.inMinutes < 60) return 'Last updated ${diff.inMinutes} min ago';
-
-  return 'Last updated ${diff.inHours}h ago';
+  if (diff.inHours < 24) return 'Last updated ${diff.inHours}h ago';
+  if (diff.inDays < 7) return 'Last updated ${diff.inDays}d ago';
+  if (diff.inDays < 30) return 'Last updated ${(diff.inDays / 7).floor()}w ago';
+  return 'Last updated ${(diff.inDays / 30).floor()}mo ago';
 }
