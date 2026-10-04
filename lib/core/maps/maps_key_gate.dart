@@ -15,4 +15,11 @@ Future<bool>? _hasMapsKey;
 Future<bool> isMapsApiKeyConfigured() => _hasMapsKey ??= const MethodChannel('ecoxchange/config')
     .invokeMethod<bool>('hasMapsApiKey')
     .then((v) => v ?? false)
-    .catchError((Object _) => false);
+    .catchError((Object _) {
+      // A thrown/failed channel call is never "no key configured" -- it's a
+      // transient platform hiccup. Caching that as a permanent false would
+      // wrongly disable the map for the rest of this app session even once
+      // the channel is healthy again, so let the next caller re-probe.
+      _hasMapsKey = null;
+      return false;
+    });
