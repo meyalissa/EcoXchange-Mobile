@@ -1,14 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/api/api_exception.dart';
+import '../../../../core/models/geo_point.dart';
 import '../../../../core/theme/design_tokens.dart';
+import '../../../../core/utils/format_tracking.dart';
 import '../../../../core/widgets/app_network_image.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/eco_app_bar.dart';
 import '../../../../core/widgets/eco_card.dart';
 import '../../data/models/pickup_detail.dart';
 import '../../data/repositories/customer_pickup_repository.dart';
+import '../widgets/customer_tracking_map.dart';
 import '../widgets/pickup_status_style.dart';
 
 /// EcoXchange Mobile — Pickup Detail (Phase 4C.2 §8, restyled Phase 4C.3
@@ -25,9 +30,12 @@ import '../widgets/pickup_status_style.dart';
 /// are deliberately left out here rather than invented — see
 /// [_StatusTimeline] and the header card below.
 class PickupDetailScreen extends StatefulWidget {
-  const PickupDetailScreen({super.key, required this.pickupId});
+  const PickupDetailScreen({super.key, required this.pickupId, this.trackingMapBuilder = defaultTrackingMapBuilder});
 
   final int pickupId;
+
+  /// Injectable so widget tests never create the native map view.
+  final TrackingMapBuilder trackingMapBuilder;
 
   @override
   State<PickupDetailScreen> createState() => _PickupDetailScreenState();
@@ -37,11 +45,30 @@ class _PickupDetailScreenState extends State<PickupDetailScreen> {
   bool _isLoading = true;
   ApiException? _error;
   PickupDetail? _pickup;
+  Timer? _pollTimer;
+
+  /// Rider-tracking refresh cadence while this screen is open. Deliberately
+  /// separate from PickupTrackingService's server-side route-recompute TTL
+  /// (30s) — this is just how often the customer's screen re-reads
+  /// whatever the server currently has, not a new Routes API call trigger.
+  static const _pollInterval = Duration(seconds: 8);
+
+  /// assignedRider.assignment_status values worth polling for — mirrors
+  /// PickupDetailResource::LOCATION_VISIBLE_STATUSES server-side, plus
+  /// 'assigned' (not yet visible-location, but still worth refreshing in
+  /// case the rider accepts while this screen is open).
+  static const _pollableAssignmentStatuses = {'assigned', 'accepted', 'en_route', 'collecting'};
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -55,11 +82,45 @@ class _PickupDetailScreenState extends State<PickupDetailScreen> {
       final pickup = await repository.getPickupDetail(widget.pickupId);
       if (!mounted) return;
       setState(() => _pickup = pickup);
+      _syncPolling();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// The polling timer's tick — a SILENT refresh. Never flips [_isLoading]
+  /// (that would throw a full-screen spinner over data the customer is
+  /// already looking at), and keeps the last known pickup/rider position on
+  /// a transient failure rather than clearing the screen; the next tick
+  /// simply tries again.
+  Future<void> _refreshSilently() async {
+    try {
+      final repository = context.read<CustomerPickupRepository>();
+      final pickup = await repository.getPickupDetail(widget.pickupId);
+      if (!mounted) return;
+      setState(() => _pickup = pickup);
+      _syncPolling();
+    } catch (_) {
+      // Keep showing the last known state; try again next tick.
+    }
+  }
+
+  /// Starts/stops the polling timer to match the just-loaded pickup's
+  /// state. Idempotent either way, so it's safe to call after every load.
+  void _syncPolling() {
+    final pickup = _pickup;
+    final shouldPoll = pickup != null &&
+        pickup.assignedRider != null &&
+        _pollableAssignmentStatuses.contains(pickup.assignedRider!.assignmentStatus);
+
+    if (shouldPoll) {
+      _pollTimer ??= Timer.periodic(_pollInterval, (_) => _refreshSilently());
+    } else {
+      _pollTimer?.cancel();
+      _pollTimer = null;
     }
   }
 
@@ -73,16 +134,17 @@ class _PickupDetailScreenState extends State<PickupDetailScreen> {
         error: _error,
         data: _pickup,
         onRetry: _load,
-        builder: (context, pickup) => _PickupDetailContent(pickup: pickup),
+        builder: (context, pickup) => _PickupDetailContent(pickup: pickup, trackingMapBuilder: widget.trackingMapBuilder),
       ),
     );
   }
 }
 
 class _PickupDetailContent extends StatelessWidget {
-  const _PickupDetailContent({required this.pickup});
+  const _PickupDetailContent({required this.pickup, required this.trackingMapBuilder});
 
   final PickupDetail pickup;
+  final TrackingMapBuilder trackingMapBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -132,6 +194,11 @@ class _PickupDetailContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+
+        // ── Rider live-tracking map (Phase 1-3) — only when a rider is
+        // actually assigned; "no rider yet" stays solely the existing
+        // RIDER INFORMATION section's job, not duplicated here. ──────────
+        if (pickup.assignedRider != null) _RiderLocationSection(pickup: pickup, mapBuilder: trackingMapBuilder),
 
         // ── Uploaded image — real URL only, honest empty state ─────────────
         _SectionCard(
@@ -213,6 +280,98 @@ class _PickupDetailContent extends StatelessWidget {
             Text(message, style: const TextStyle(color: AppColors.n500, fontSize: 12)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "RIDER IS ON THE WAY" — the pickup/rider map, real road distance/ETA
+/// when available, and an honest freshness note. Degrades gracefully
+/// (section 11 cases in the task spec): no rider marker without a stored
+/// rider position, no route line without a server-computed route, no
+/// distance/ETA without route data — never a fabricated value, and the
+/// map itself never disappears just because the route is unavailable.
+class _RiderLocationSection extends StatelessWidget {
+  const _RiderLocationSection({required this.pickup, required this.mapBuilder});
+
+  final PickupDetail pickup;
+  final TrackingMapBuilder mapBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final rider = pickup.assignedRider!;
+    final address = pickup.address;
+
+    final pickupPoint = (address?.latitude != null && address?.longitude != null)
+        ? GeoPoint(address!.latitude!, address.longitude!)
+        : null;
+    final riderPoint = (rider.currentLatitude != null && rider.currentLongitude != null)
+        ? GeoPoint(rider.currentLatitude!, rider.currentLongitude!)
+        : null;
+    final route = pickupPoint != null && riderPoint != null ? pickup.trackingRoute : null;
+
+    return _SectionCard(
+      title: 'RIDER IS ON THE WAY',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.r12),
+            child: SizedBox(
+              height: 220,
+              child: (pickupPoint != null || riderPoint != null)
+                  ? mapBuilder(context, pickupPoint: pickupPoint, riderPoint: riderPoint, route: route)
+                  : Container(
+                      key: const Key('tracking-no-coordinates'),
+                      color: AppColors.n100,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.all(16),
+                      child: const Text(
+                        'No map coordinates are available for this pickup yet.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: AppColors.n500),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (riderPoint == null)
+            const Text(
+              'Waiting for rider location…',
+              key: Key('tracking-waiting'),
+              style: TextStyle(fontSize: 13, color: AppColors.n500),
+            )
+          else if (route == null)
+            const Text(
+              'Route information temporarily unavailable.',
+              key: Key('tracking-no-route'),
+              style: TextStyle(fontSize: 13, color: AppColors.n500),
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${formatTrackingDistance(route.distanceMeters)} away',
+                  key: const Key('tracking-distance'),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.green700),
+                ),
+                Text(
+                  '~${formatTrackingDuration(route.durationSeconds)}',
+                  key: const Key('tracking-eta'),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.n800),
+                ),
+              ],
+            ),
+          if (riderPoint != null && rider.locationUpdatedAt != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              formatLocationFreshness(rider.locationUpdatedAt!),
+              key: const Key('tracking-freshness'),
+              style: const TextStyle(fontSize: 11, color: AppColors.n400),
+            ),
+          ],
+        ],
       ),
     );
   }

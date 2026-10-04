@@ -1,76 +1,159 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../../core/api/api_exception.dart';
 import '../../../../core/theme/design_tokens.dart';
 import '../../../../core/widgets/app_network_image.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/eco_app_bar.dart';
+import '../../../../core/widgets/eco_button.dart';
 import '../../../../core/widgets/eco_card.dart';
+import '../../data/models/rider_pickup_action.dart';
 import '../../data/models/rider_pickup_detail.dart';
 import '../../data/repositories/rider_pickup_repository.dart';
+import '../providers/rider_pickup_detail_provider.dart';
+import '../widgets/rider_action_runner.dart';
 import '../widgets/rider_status_chip.dart';
 
-/// EcoXchange Mobile — Rider Pickup Detail (Phase R1, READ-ONLY):
-/// `GET /rider/pickups/{id}`. Everything a rider needs to find, contact and
-/// collect the pickup. A pickup assigned to someone else is a real 403,
-/// shown through the shared error state. State-changing actions
-/// (accept/start/collect/complete) are deliberately not here yet.
+/// EcoXchange Mobile — Rider Pickup Detail: `GET /rider/pickups/{id}` plus
+/// the rider's next action (Phase R2.2). Everything a rider needs to find,
+/// contact and collect the pickup; a pickup assigned to someone else is a
+/// real 403, shown through the shared error state.
 ///
-/// A single fetch-and-show screen, so it keeps simple local state like the
-/// Customer PickupDetailScreen rather than a dedicated ChangeNotifier.
-class RiderPickupDetailScreen extends StatefulWidget {
+/// The action area offers ONLY the action the pickup's ASSIGNMENT status
+/// allows (assigned → Accept, accepted → Start, en_route → Collect, each
+/// behind a confirmation; collecting → Complete, which opens
+/// RiderCompletePickupScreen to record the collected quantities/weights).
+/// State always comes from the server (see RiderPickupDetailProvider):
+/// nothing changes on screen until Laravel confirms, and a 409 re-reads
+/// the pickup.
+class RiderPickupDetailScreen extends StatelessWidget {
   const RiderPickupDetailScreen({super.key, required this.pickupId});
 
   final int pickupId;
 
   @override
-  State<RiderPickupDetailScreen> createState() => _RiderPickupDetailScreenState();
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (context) => RiderPickupDetailProvider(context.read<RiderPickupRepository>(), pickupId)..load(),
+      child: const _DetailScaffold(),
+    );
+  }
 }
 
-class _RiderPickupDetailScreenState extends State<RiderPickupDetailScreen> {
-  bool _isLoading = true;
-  ApiException? _error;
-  RiderPickupDetail? _pickup;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
-    try {
-      final pickup = await context.read<RiderPickupRepository>().getPickupDetail(widget.pickupId);
-      if (!mounted) return;
-      setState(() => _pickup = pickup);
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
+class _DetailScaffold extends StatelessWidget {
+  const _DetailScaffold();
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<RiderPickupDetailProvider>();
+    final pickup = provider.pickup;
+
     return Scaffold(
       backgroundColor: AppColors.n50,
-      appBar: EcoAppBar(title: _pickup?.reference ?? 'Pickup Detail'),
+      appBar: EcoAppBar(title: pickup?.reference ?? 'Pickup Detail'),
       body: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: provider.load,
         child: AsyncStateView<RiderPickupDetail>(
-          isLoading: _isLoading,
-          error: _error,
-          data: _pickup,
-          onRetry: _load,
+          isLoading: provider.isLoading,
+          error: provider.loadError,
+          data: pickup,
+          onRetry: provider.load,
           builder: (context, pickup) => _DetailContent(pickup: pickup),
         ),
+      ),
+      bottomNavigationBar: pickup == null ? null : _ActionArea(provider: provider, pickup: pickup),
+    );
+  }
+}
+
+// ── Next-action area ────────────────────────────────────────────────────────
+
+/// Offers the pickup's single next action; confirmation, submission and
+/// the completion screen all go through the shared [runRiderAction].
+class _ActionArea extends StatelessWidget {
+  const _ActionArea({required this.provider, required this.pickup});
+
+  final RiderPickupDetailProvider provider;
+  final RiderPickupDetail pickup;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = pickup.assignment?.status;
+    final next = provider.nextAction;
+    final error = provider.actionError;
+    final Widget? main = next == null ? null : _button(context, next);
+
+    if (main == null && error == null) return const SizedBox.shrink();
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.n0,
+        border: Border(top: BorderSide(color: AppColors.n100)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (error != null) ...[
+                _ErrorNote(key: const Key('rider-action-error'), text: riderActionErrorText(error), onDismiss: provider.clearActionError),
+                if (main != null) const SizedBox(height: 10),
+              ],
+              ?main,
+              if (status != null && main != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Current status: ${RiderStatusChip.styleFor(status).label}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11, color: AppColors.n500),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _button(BuildContext context, RiderPickupAction action) {
+    final copy = riderActionCopy(action);
+    return EcoButton(
+      key: Key('rider-action-${action.path}'),
+      label: copy.button,
+      icon: copy.icon,
+      fullWidth: true,
+      pill: true,
+      loading: provider.submittingAction == action,
+      onPressed: provider.isSubmitting ? null : () => runRiderAction(context, provider, action),
+    );
+  }
+}
+
+class _ErrorNote extends StatelessWidget {
+  const _ErrorNote({super.key, required this.text, required this.onDismiss});
+
+  final String text;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(color: AppColors.redLight, borderRadius: BorderRadius.circular(AppRadii.r12)),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, size: 18, color: AppColors.red),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.red, height: 1.4))),
+          IconButton(
+            tooltip: 'Dismiss',
+            icon: const Icon(Icons.close, size: 16, color: AppColors.red),
+            onPressed: onDismiss,
+          ),
+        ],
       ),
     );
   }

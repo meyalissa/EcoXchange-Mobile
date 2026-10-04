@@ -56,6 +56,14 @@ dependencies:
   # or gallery. The smallest well-maintained option for this; no other
   # image-related package is added.
   image_picker: ^1.1.2
+  google_maps_flutter: ^2.18.1
+  url_launcher: ^6.3.2
+
+  # Rider's own foreground GPS, sent periodically to Laravel while an
+  # active assignment is open (customer live-tracking, Phase 1). Bundles
+  # its own runtime permission requests -- no separate permission_handler
+  # dependency needed.
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:
@@ -78,6 +86,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/map_markers/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

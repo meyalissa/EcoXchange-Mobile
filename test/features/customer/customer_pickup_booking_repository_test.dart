@@ -45,6 +45,23 @@ void main() {
       }
     });
 
+    test('estimateByWeight() (Manual Calculator) sends item_id + the entered weight_kg only — no client reward', () async {
+      final spy = _SpyApiClient()
+        ..responseData = {'items': [], 'total_weight_kg': 1.5, 'preliminary_reward': 0.6, 'unavailable_item_ids': [], 'note': null};
+      final repo = CustomerPickupBookingRepository(spy);
+
+      final result = await repo.estimateByWeight({1: 1.5});
+
+      expect(spy.lastPath, '/customer/pickup/estimate');
+      expect(spy.lastData, {
+        'items': [
+          {'item_id': 1, 'quantity': 1, 'weight_kg': 1.5},
+        ],
+      });
+      // The reward shown is the SERVER's figure.
+      expect(result.preliminaryReward, 0.6);
+    });
+
     test('centres() sends items + address_id only — no client-side feasibility/rate', () async {
       final spy = _SpyApiClient()..responseData = {'centres': [], 'preliminary_reward': 0.0, 'unavailable_item_ids': [], 'message': null};
       final repo = CustomerPickupBookingRepository(spy);

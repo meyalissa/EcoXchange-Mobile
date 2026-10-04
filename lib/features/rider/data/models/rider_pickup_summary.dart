@@ -22,6 +22,7 @@ class RiderPickupSummary {
     required this.centreName,
     required this.estimatedWeightKg,
     required this.actualWeightKg,
+    this.itemNames = const [],
   });
 
   factory RiderPickupSummary.fromJson(Map<String, dynamic> json) {
@@ -40,6 +41,7 @@ class RiderPickupSummary {
       centreName: centre?['name'] as String?,
       estimatedWeightKg: (json['estimated_weight_kg'] as num?)?.toDouble(),
       actualWeightKg: (json['actual_weight_kg'] as num?)?.toDouble(),
+      itemNames: (json['item_names'] as List<dynamic>? ?? const []).map((e) => e as String).toList(),
     );
   }
 
@@ -55,6 +57,9 @@ class RiderPickupSummary {
   final String? centreName;
   final double? estimatedWeightKg;
   final double? actualWeightKg;
+
+  /// Distinct item names on the pickup (e.g. ["Plastic Bottle", "Cardboard"]).
+  final List<String> itemNames;
 
   /// The rider-facing status: the assignment's own state when present,
   /// otherwise the pickup's.

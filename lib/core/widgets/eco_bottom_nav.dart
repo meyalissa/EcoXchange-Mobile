@@ -22,11 +22,15 @@ class EcoNavItem {
 /// Still carries exactly the 5 real functional tabs — see
 /// `CustomerHomeScreen` for the approved tab set.
 class EcoBottomNav extends StatelessWidget {
-  const EcoBottomNav({super.key, required this.currentIndex, required this.onTap, required this.items});
+  const EcoBottomNav({super.key, required this.currentIndex, required this.onTap, required this.items, this.centerIndex});
 
   final int currentIndex;
   final ValueChanged<int> onTap;
   final List<EcoNavItem> items;
+
+  /// When set, that item is drawn as the design's raised round green button
+  /// in the middle of the bar (Customer "AI Scan", Rider "Route").
+  final int? centerIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -49,9 +53,67 @@ class EcoBottomNav extends StatelessWidget {
       child: Row(
         children: [
           for (var i = 0; i < items.length; i++)
-            Expanded(child: _NavItemButton(item: items[i], active: i == currentIndex, onTap: () => onTap(i))),
+            Expanded(
+              child: i == centerIndex
+                  ? _CenterNavButton(item: items[i], active: i == currentIndex, onTap: () => onTap(i))
+                  : _NavItemButton(item: items[i], active: i == currentIndex, onTap: () => onTap(i)),
+            ),
         ],
       ),
+    );
+  }
+}
+
+/// The raised centre action: a 60px green gradient circle with a white ring,
+/// lifted above the bar, with its label underneath.
+class _CenterNavButton extends StatelessWidget {
+  const _CenterNavButton({required this.item, required this.active, required this.onTap});
+
+  final EcoNavItem item;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.topCenter,
+      children: [
+        Positioned(
+          top: -26,
+          child: GestureDetector(
+            key: Key('nav-center-${item.label}'),
+            onTap: onTap,
+            child: Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: AppColors.fabGradient,
+                border: Border.all(color: AppColors.n0, width: 4),
+                boxShadow: const [BoxShadow(color: Color(0x33527040), blurRadius: 14, offset: Offset(0, 6))],
+              ),
+              child: Icon(active ? item.activeIcon : item.icon, color: Colors.white, size: 26),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 10,
+          left: 0,
+          right: 0,
+          child: GestureDetector(
+            onTap: onTap,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                item.label,
+                maxLines: 1,
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: active ? AppColors.green600 : AppColors.n500),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -97,7 +159,10 @@ class _NavItemButton extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 4),
-              Text(item.label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(item.label, maxLines: 1, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+              ),
             ],
           ),
         ),

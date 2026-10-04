@@ -1,3 +1,5 @@
+import '../../../../core/models/geo_point.dart';
+
 /// EcoXchange Mobile — `GET /api/v1/rider/pickups/{pickup}`, shaped like
 /// `App\Http\Resources\Rider\RiderPickupDetailResource`. Read-only in
 /// Phase R1: the fields a rider needs to find, contact and collect a
@@ -21,6 +23,7 @@ class RiderPickupDetail {
     required this.actualWeightKg,
     required this.imageUrl,
     required this.assignment,
+    this.locations = const RiderRouteLocations(),
   });
 
   factory RiderPickupDetail.fromJson(Map<String, dynamic> json) {
@@ -46,6 +49,9 @@ class RiderPickupDetail {
       actualWeightKg: (json['actual_weight_kg'] as num?)?.toDouble(),
       imageUrl: json['image_url'] as String?,
       assignment: assignment == null ? null : RiderAssignment.fromJson(assignment),
+      locations: json['locations'] is Map<String, dynamic>
+          ? RiderRouteLocations.fromJson(json['locations'] as Map<String, dynamic>)
+          : const RiderRouteLocations(),
     );
   }
 
@@ -65,8 +71,30 @@ class RiderPickupDetail {
   final String? imageUrl;
   final RiderAssignment? assignment;
 
+  /// Raw stored coordinates (rider / pickup / recycling centre); any may be
+  /// null. No distance or ETA is computed anywhere in the backend.
+  final RiderRouteLocations locations;
+
   /// The rider-facing status: this rider's assignment state when present.
   String get displayStatus => assignment?.status ?? status;
+}
+
+/// `locations` in RiderPickupDetailResource: the rider's last stored
+/// position and the pickup / recycling-centre coordinates.
+class RiderRouteLocations {
+  const RiderRouteLocations({this.rider, this.pickup, this.recyclingCentre});
+
+  factory RiderRouteLocations.fromJson(Map<String, dynamic> json) {
+    return RiderRouteLocations(
+      rider: GeoPoint.fromJson(json['rider']),
+      pickup: GeoPoint.fromJson(json['pickup']),
+      recyclingCentre: GeoPoint.fromJson(json['recycling_centre']),
+    );
+  }
+
+  final GeoPoint? rider;
+  final GeoPoint? pickup;
+  final GeoPoint? recyclingCentre;
 }
 
 class RiderPickupAddress {
@@ -103,6 +131,7 @@ class RiderPickupCentre {
 
 class RiderPickupItem {
   const RiderPickupItem({
+    required this.pickupItemId,
     required this.itemId,
     required this.itemName,
     required this.category,
@@ -113,6 +142,7 @@ class RiderPickupItem {
 
   factory RiderPickupItem.fromJson(Map<String, dynamic> json) {
     return RiderPickupItem(
+      pickupItemId: json['pickup_item_id'] as int?,
       itemId: json['item_id'] as int,
       itemName: json['item_name'] as String?,
       category: json['category'] as String?,
@@ -122,6 +152,12 @@ class RiderPickupItem {
     );
   }
 
+  /// `pickup_items.id` — this line's own id, which `complete` expects as
+  /// `items[].pickup_item_id` (R2.3). Null only from an older backend that
+  /// didn't return it.
+  final int? pickupItemId;
+
+  /// The catalogue `items.id`.
   final int itemId;
   final String? itemName;
   final String? category;

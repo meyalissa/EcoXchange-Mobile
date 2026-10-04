@@ -14,6 +14,7 @@ import 'features/customer/data/repositories/customer_pickup_repository.dart';
 import 'features/customer/data/repositories/customer_recycling_centre_repository.dart';
 import 'features/customer/data/repositories/customer_reward_repository.dart';
 import 'features/rider/data/repositories/rider_dashboard_repository.dart';
+import 'features/rider/data/repositories/rider_location_repository.dart';
 import 'features/rider/data/repositories/rider_pickup_repository.dart';
 import 'features/rider/data/repositories/rider_profile_repository.dart';
 
@@ -58,6 +59,7 @@ void main() {
         Provider<RiderDashboardRepository>.value(value: RiderDashboardRepository(apiClient)),
         Provider<RiderPickupRepository>.value(value: RiderPickupRepository(apiClient)),
         Provider<RiderProfileRepository>.value(value: RiderProfileRepository(apiClient)),
+        Provider<RiderLocationRepository>.value(value: RiderLocationRepository(apiClient)),
       ],
       child: const EcoXchangeApp(),
     ),

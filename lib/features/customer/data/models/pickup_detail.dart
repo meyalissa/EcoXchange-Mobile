@@ -20,6 +20,7 @@ class PickupDetail {
     required this.items,
     required this.centre,
     required this.assignedRider,
+    required this.trackingRoute,
     required this.imageUrl,
   });
 
@@ -44,6 +45,12 @@ class PickupDetail {
       centre: json['centre'] != null ? PickupCentreRef.fromJson(json['centre'] as Map<String, dynamic>) : null,
       assignedRider:
           json['assigned_rider'] != null ? AssignedRider.fromJson(json['assigned_rider'] as Map<String, dynamic>) : null,
+      // Server key is "tracking_route" (not "route") -- see
+      // PickupDetailResource's docblock: a pre-existing test forbids the
+      // literal key "route" anywhere in a Customer API response, guarding
+      // against internal dispatch/ACO data leaking.
+      trackingRoute:
+          json['tracking_route'] != null ? PickupTrackingRoute.fromJson(json['tracking_route'] as Map<String, dynamic>) : null,
       imageUrl: json['image_url'] as String?,
     );
   }
@@ -63,7 +70,31 @@ class PickupDetail {
   final List<PickupDetailItem> items;
   final PickupCentreRef? centre;
   final AssignedRider? assignedRider;
+
+  /// Road route from the rider's current position to [address], computed
+  /// server-side. Null whenever there's no rider position to route from,
+  /// no pickup address coordinate to route to, or the Routes API call
+  /// itself failed/is unconfigured — never fabricated client-side.
+  final PickupTrackingRoute? trackingRoute;
   final String? imageUrl;
+}
+
+/// `tracking_route` in PickupDetailResource — a real Google Routes API
+/// result, never a straight-line/Haversine substitute computed on-device.
+class PickupTrackingRoute {
+  const PickupTrackingRoute({required this.distanceMeters, required this.durationSeconds, required this.polyline});
+
+  factory PickupTrackingRoute.fromJson(Map<String, dynamic> json) {
+    return PickupTrackingRoute(
+      distanceMeters: json['distance_meters'] as int,
+      durationSeconds: json['duration_seconds'] as int,
+      polyline: json['polyline'] as String,
+    );
+  }
+
+  final int distanceMeters;
+  final int durationSeconds;
+  final String polyline;
 }
 
 class PickupAddress {
@@ -152,6 +183,7 @@ class AssignedRider {
     required this.assignmentStatus,
     required this.currentLatitude,
     required this.currentLongitude,
+    required this.locationUpdatedAt,
   });
 
   factory AssignedRider.fromJson(Map<String, dynamic> json) {
@@ -163,6 +195,7 @@ class AssignedRider {
       assignmentStatus: json['assignment_status'] as String? ?? '',
       currentLatitude: (json['current_latitude'] as num?)?.toDouble(),
       currentLongitude: (json['current_longitude'] as num?)?.toDouble(),
+      locationUpdatedAt: json['location_updated_at'] != null ? DateTime.tryParse(json['location_updated_at'] as String) : null,
     );
   }
 
@@ -173,4 +206,9 @@ class AssignedRider {
   final String assignmentStatus;
   final double? currentLatitude;
   final double? currentLongitude;
+
+  /// When the rider's GPS was last actually written server-side — lets the
+  /// UI say "updated just now" vs. a stale position honestly, instead of
+  /// claiming the marker is live when the rider's device stopped sending.
+  final DateTime? locationUpdatedAt;
 }

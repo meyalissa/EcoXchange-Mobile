@@ -40,7 +40,7 @@ class EcoButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null) ...[Icon(icon, size: 18), const SizedBox(width: 7)],
-              Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
             ],
           );
 

@@ -122,11 +122,11 @@ void main() {
 
     await pumpShell(tester, authProvider);
 
-    expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Pickups'), findsOneWidget);
-    expect(find.text('Items'), findsOneWidget);
-    expect(find.text('Centres'), findsOneWidget);
-    expect(find.text('Rewards'), findsOneWidget);
+    for (final label in ['Home', 'Pickup', 'AI Scan', 'Rewards', 'Profile']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    // AI Scan is the raised centre button.
+    expect(find.byKey(const Key('nav-center-AI Scan')), findsOneWidget);
 
     // Starts on Dashboard — its gradient hero shows the real logged-in
     // user's name and the real wallet card, not a literal "Dashboard" title.
@@ -149,8 +149,12 @@ void main() {
 
     await pumpShell(tester, authProvider);
 
-    expect(find.byIcon(Icons.logout), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.logout));
+    // Log Out lives on the Profile tab.
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byKey(const Key('profile-logout')), 200, scrollable: find.byType(Scrollable).last);
+    expect(find.byKey(const Key('profile-logout')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('profile-logout')));
     await tester.pumpAndSettle();
 
     expect(authProvider.status, AuthStatus.unauthenticated);

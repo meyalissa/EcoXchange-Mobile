@@ -6,18 +6,19 @@ import '../../../../core/theme/design_tokens.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/gradient_header.dart';
 import '../../data/models/reward_transaction.dart';
+import '../providers/dashboard_provider.dart';
 import '../providers/reward_provider.dart';
 
 /// EcoXchange Mobile — Rewards (Phase 4C.2 §11, restyled Phase 4C.3 to
 /// match `rewards-dashboard.html`). Shows the real RM `reward_balance`
 /// and the real transaction ledger only. NO points system, NO "1 RM = 100
 /// points" conversion, NO membership level/"Gold" badge, NO Withdraw
-/// button (there is no redemption endpoint), NO Lifetime total (that
-/// would require summing every page of transactions ever made, which
-/// this screen never fully loads) — see CustomerRewardRepository/
-/// RewardTransactionModel. The one derived figure here, "This Month", is
+/// button (there is no redemption endpoint) — see CustomerRewardRepository/
+/// RewardTransactionModel. "Lifetime" is the server's own
+/// `total_rewards_earned` (GET /customer/dashboard). "This Month" is
 /// computed client-side purely from transactions already fetched for
-/// display — never a separate invented number.
+/// display — never a separate invented number. The All/Earned/Bonus chips
+/// filter the loaded ledger by its real `type` (no withdrawals exist).
 class RewardScreen extends StatefulWidget {
   const RewardScreen({super.key});
 
@@ -28,10 +29,18 @@ class RewardScreen extends StatefulWidget {
 class _RewardScreenState extends State<RewardScreen> {
   final _scrollController = ScrollController();
 
+  /// Client-side filter over the loaded ledger: null = all, else a real
+  /// server `type` token. Only `earn` and `bonus` exist in the data today.
+  String? _typeFilter;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => context.read<RewardProvider>().load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<RewardProvider>().load();
+      final dashboard = context.read<DashboardProvider>();
+      if (dashboard.data == null && !dashboard.isLoading) dashboard.load();
+    });
     _scrollController.addListener(_onScroll);
   }
 
@@ -68,6 +77,8 @@ class _RewardScreenState extends State<RewardScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<RewardProvider>();
+    final lifetime = context.watch<DashboardProvider>().data?.totalRewardsEarned;
+    final shown = _typeFilter == null ? provider.transactions : provider.transactions.where((t) => t.type == _typeFilter).toList();
 
     return RefreshIndicator(
       onRefresh: provider.refresh,
@@ -85,26 +96,29 @@ class _RewardScreenState extends State<RewardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Rewards Hub', style: AppTheme.displayFont(fontSize: 21, fontWeight: FontWeight.w900, color: Colors.white)),
-                  const SizedBox(height: 14),
+                  const Text('Wallet & Rewards', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  Text('Rewards Hub', style: AppTheme.displayFont(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white)),
+                  const SizedBox(height: 18),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(AppRadii.r20)),
+                    key: const Key('rewards-wallet'),
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(AppRadii.r24)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('WALLET BALANCE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 4),
-                        Text('RM ${balance.toStringAsFixed(2)}', style: AppTheme.displayFont(fontSize: 30, fontWeight: FontWeight.w900, color: Colors.white)),
+                        Text('RM ${balance.toStringAsFixed(2)}', style: AppTheme.displayFont(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white)),
                         const SizedBox(height: 12),
                         Container(height: 1, color: Colors.white.withValues(alpha: 0.2)),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            const Text('THIS MONTH', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
-                            const SizedBox(width: 6),
-                            Text('RM ${_thisMonthTotal(provider.transactions).toStringAsFixed(2)}', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+                            Flexible(child: _WalletFigure(label: 'THIS MONTH', value: 'RM ${_thisMonthTotal(provider.transactions).toStringAsFixed(2)}')),
+                            const SizedBox(width: 28),
+                            if (lifetime != null) Flexible(child: _WalletFigure(label: 'LIFETIME', value: 'RM ${lifetime.toStringAsFixed(2)}')),
                           ],
                         ),
                       ],
@@ -114,29 +128,50 @@ class _RewardScreenState extends State<RewardScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text('Transactions', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(child: Text('Transactions', style: AppTheme.displayFont(fontSize: 19, fontWeight: FontWeight.w800, color: AppColors.n800))),
+                  for (final (label, type) in const [('All', null), ('Earned', 'earn'), ('Bonus', 'bonus')])
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: ChoiceChip(
+                        key: Key('rewards-filter-${type ?? 'all'}'),
+                        label: Text(label),
+                        selected: _typeFilter == type,
+                        onSelected: (_) => setState(() => _typeFilter = type),
+                        selectedColor: AppColors.green500,
+                        labelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _typeFilter == type ? Colors.white : AppColors.n700),
+                        showCheckmark: false,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
-            if (provider.transactions.isEmpty)
+            if (shown.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(color: AppColors.n100, borderRadius: BorderRadius.circular(AppRadii.r12)),
-                  child: const Text('No reward transactions yet.', style: TextStyle(color: AppColors.n500, fontSize: 13)),
+                  child: Text(
+                    provider.transactions.isEmpty ? 'No reward transactions yet.' : 'No transactions of this type loaded.',
+                    style: const TextStyle(color: AppColors.n500, fontSize: 13),
+                  ),
                 ),
               )
             else
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(color: AppColors.n0, borderRadius: BorderRadius.circular(AppRadii.r16), boxShadow: AppShadows.sh1),
+                decoration: BoxDecoration(color: AppColors.n0, borderRadius: BorderRadius.circular(AppRadii.r20), boxShadow: AppShadows.sh1),
                 child: Column(
                   children: [
-                    for (final tx in provider.transactions) ...[
-                      if (tx != provider.transactions.first) const Divider(height: 1, color: AppColors.n100),
+                    for (final tx in shown) ...[
+                      if (tx != shown.first) const Divider(height: 1, color: AppColors.n100),
                       _TransactionTile(transaction: tx),
                     ],
                   ],
@@ -151,6 +186,25 @@ class _RewardScreenState extends State<RewardScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _WalletFigure extends StatelessWidget {
+  const _WalletFigure({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700))),
+        const SizedBox(height: 2),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900))),
+      ],
     );
   }
 }
@@ -212,7 +266,7 @@ class _TransactionTile extends StatelessWidget {
   /// server `type` token (earn/withdraw/refund/bonus/penalty).
   String _typeLabel(String type) {
     return switch (type) {
-      'earn' => 'Reward Earned',
+      'earn' => 'Pickup Completed',
       'withdraw' => 'Withdrawal',
       'refund' => 'Refund',
       'bonus' => 'Bonus',

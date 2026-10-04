@@ -11,6 +11,8 @@ Map<String, dynamic> riderPickupSummaryJson({
   String status = 'assigned',
   String? assignmentStatus = 'assigned',
   bool withCustomer = true,
+  String pickupDate = '2026-10-02',
+  List<String>? itemNames,
 }) =>
     {
       'id': id,
@@ -18,7 +20,7 @@ Map<String, dynamic> riderPickupSummaryJson({
       'status': status,
       // RiderPickupSummaryResource uses when(): absent, not null, if missing.
       'assignment_status': ?assignmentStatus,
-      'pickup_date': '2026-10-02',
+      'pickup_date': pickupDate,
       'pickup_time': '10:00-12:00',
       if (withCustomer) 'customer': {'name': 'Nurul Aisyah', 'phone_number': '+60123456780'},
       'address_summary': 'No. 12, Jalan USJ 9/5P, Subang Jaya',
@@ -26,6 +28,7 @@ Map<String, dynamic> riderPickupSummaryJson({
       'estimated_weight_kg': 2.5,
       'actual_weight_kg': null,
       'created_at': '2026-09-30T10:00:00+08:00',
+      'item_names': ?itemNames,
     };
 
 Map<String, dynamic> riderDashboardJson({
@@ -41,7 +44,13 @@ Map<String, dynamic> riderDashboardJson({
       'next_pickup': nextPickup,
     };
 
-Map<String, dynamic> riderPickupDetailJson({int id = 12, String assignmentStatus = 'accepted'}) => {
+Map<String, dynamic> riderPickupDetailJson({
+  int id = 12,
+  String assignmentStatus = 'accepted',
+  Map<String, dynamic>? locations,
+  bool addressHasCoordinates = true,
+}) =>
+    {
       'id': id,
       'reference': 'PK-$id',
       'status': 'assigned',
@@ -57,8 +66,8 @@ Map<String, dynamic> riderPickupDetailJson({int id = 12, String assignmentStatus
         'postcode': '47620',
         'state': 'Selangor',
         'formatted': 'No. 12, Jalan USJ 9/5P, 47620 Subang Jaya, Selangor',
-        'latitude': 3.0428,
-        'longitude': 101.5838,
+        'latitude': addressHasCoordinates ? 3.0428 : null,
+        'longitude': addressHasCoordinates ? 101.5838 : null,
       },
       'centre': {
         'name': 'EcoGreen Subang Jaya',
@@ -69,6 +78,7 @@ Map<String, dynamic> riderPickupDetailJson({int id = 12, String assignmentStatus
       },
       'items': [
         {
+          'pickup_item_id': 31,
           'item_id': 10,
           'item_name': 'Glass Bottle',
           'category': 'Glass',
@@ -78,6 +88,7 @@ Map<String, dynamic> riderPickupDetailJson({int id = 12, String assignmentStatus
           'actual_weight_kg': null,
         },
         {
+          'pickup_item_id': 32,
           'item_id': 1,
           'item_name': 'Plastic Bottle',
           'category': 'Plastic',
@@ -96,7 +107,7 @@ Map<String, dynamic> riderPickupDetailJson({int id = 12, String assignmentStatus
         'accepted_at': '2026-09-30T11:05:00+08:00',
         'completed_at': null,
       },
-      'locations': {'rider': null, 'pickup': {'latitude': 3.0428, 'longitude': 101.5838}, 'recycling_centre': null},
+      'locations': locations ?? {'rider': null, 'pickup': {'latitude': 3.0428, 'longitude': 101.5838}, 'recycling_centre': null},
     };
 
 Map<String, dynamic> riderProfileJson({bool withCentre = true}) => {

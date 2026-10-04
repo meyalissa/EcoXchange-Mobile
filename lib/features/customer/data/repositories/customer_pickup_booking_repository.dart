@@ -32,6 +32,20 @@ class CustomerPickupBookingRepository {
     return PickupEstimate.fromJson(data);
   }
 
+  /// Manual reward calculator: the same `POST /customer/pickup/estimate`, but
+  /// with a weight the customer entered per item (`weight_kg`, which the
+  /// endpoint validates and uses instead of quantity × unit weight). Laravel
+  /// returns the weight and preliminary reward; nothing is computed here. The
+  /// booking flow keeps using [estimate].
+  Future<PickupEstimate> estimateByWeight(Map<int, double> weightsKg) async {
+    final data = await _api.post('/customer/pickup/estimate', data: {
+      'items': [
+        for (final e in weightsKg.entries) {'item_id': e.key, 'quantity': 1, 'weight_kg': e.value},
+      ],
+    });
+    return PickupEstimate.fromJson(data);
+  }
+
   Future<CentresResult> centres({required Map<int, int> quantities, required int addressId}) async {
     final data = await _api.post('/customer/pickup/centres', data: {
       'items': _itemsPayload(quantities),

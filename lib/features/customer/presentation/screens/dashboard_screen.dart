@@ -6,6 +6,7 @@ import '../../../../core/theme/design_tokens.dart';
 import '../../../../core/widgets/app_network_image.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/eco_card.dart';
+import '../../../../core/widgets/eco_hero_header.dart';
 import '../../../../core/widgets/gradient_header.dart';
 import '../../../auth/presentation/auth_provider.dart';
 import '../../data/models/dashboard_data.dart';
@@ -15,30 +16,24 @@ import '../providers/dashboard_provider.dart';
 import '../providers/item_catalogue_provider.dart';
 import '../providers/reward_provider.dart';
 import '../widgets/pickup_status_style.dart';
-import '../widgets/pickup_summary_card.dart';
 import 'item_detail_screen.dart';
 import 'pickup_detail_screen.dart';
-import 'scan/scan_classify_screen.dart';
 
-/// EcoXchange Mobile — Customer Dashboard (Phase 4C.2 §6, restyled Phase
-/// 4C.3 to match `mobile-customer/home.html`). Every figure on this screen
-/// is a real field from an existing endpoint — no environmental-points/
-/// CO₂/streak/Gold-Member metric is shown because none exists in any API
-/// response (see class docblocks on the models for what was deliberately
-/// left out and why).
+/// EcoXchange Mobile — Customer Home, aligned to the 01_customer_home design:
+/// greeting hero with the EcoXchange Wallet, "Your Impact This Month",
+/// the active pickup and recyclable items.
 ///
-/// The wallet card intentionally reads TWO real endpoints, both already
-/// part of the existing architecture and already loaded by sibling tabs
-/// in the same `CustomerHomeScreen` provider scope: `RewardProvider`
-/// (`GET /customer/rewards` → `reward_balance`, the genuine redeemable
-/// balance) and this screen's own `DashboardProvider` (`total_rewards_earned`,
-/// the lifetime sum of completed pickups). These are two different real
-/// numbers — never conflated into one, never relabelled as "points".
+/// Every figure is real:
+///   * wallet balance — `GET /customer/rewards` (`reward_balance`);
+///   * lifetime earned / weight recycled — `GET /customer/dashboard` totals;
+///   * this month — the dashboard's `monthly_weight_kg` /
+///     `monthly_completed_pickups` (completions in the current calendar month).
+/// Deliberately NOT shown (no backend data or agreed factor): reward points,
+/// membership tier, trees saved, CO₂.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key, required this.onSeeAllItems});
 
-  /// Switches the shell to the Items tab — reuses the existing bottom-nav
-  /// state rather than pushing a second, parallel navigation route.
+  /// Opens the full Items Guide.
   final VoidCallback onSeeAllItems;
 
   @override
@@ -51,9 +46,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DashboardProvider>().load();
-      // Reused, not re-implemented — RewardProvider/ItemCatalogueProvider
-      // already exist for their own tabs; only fetched here if genuinely
-      // not already loaded (e.g. the customer opens Dashboard first).
       final rewards = context.read<RewardProvider>();
       if (rewards.balance == null && !rewards.isLoading) rewards.load();
       final catalogue = context.read<ItemCatalogueProvider>();
@@ -66,46 +58,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final provider = context.watch<DashboardProvider>();
 
     return RefreshIndicator(
-      onRefresh: provider.refresh,
+      onRefresh: () async {
+        final rewards = context.read<RewardProvider>();
+        await Future.wait([provider.refresh(), rewards.refresh()]);
+      },
       child: AsyncStateView<DashboardData>(
         isLoading: provider.isLoading,
         error: provider.error,
         data: provider.data,
         onRetry: provider.load,
-        builder: (context, data) => _DashboardContent(data: data, onSeeAllItems: widget.onSeeAllItems),
+        builder: (context, data) => _HomeContent(data: data, onSeeAllItems: widget.onSeeAllItems),
       ),
     );
   }
 }
 
-class _DashboardContent extends StatelessWidget {
-  const _DashboardContent({required this.data, required this.onSeeAllItems});
+String _greeting() {
+  final hour = DateTime.now().hour;
+  if (hour < 12) return 'Good Morning';
+  if (hour < 18) return 'Good Afternoon';
+  return 'Good Evening';
+}
+
+String _kg(double v) => v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
+
+class _HomeContent extends StatelessWidget {
+  const _HomeContent({required this.data, required this.onSeeAllItems});
 
   final DashboardData data;
   final VoidCallback onSeeAllItems;
 
-  String get _greeting {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good Morning';
-    if (hour < 18) return 'Good Afternoon';
-    return 'Good Evening';
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Nullable, not force-unwrapped: guards the one-frame window where
-    // logout() has cleared AuthProvider.user but the router hasn't yet
-    // swapped this screen out for LoginScreen.
+    // Nullable: the frame between logout() and the router swapping screens.
     final userName = context.watch<AuthProvider>().user?.name ?? '';
     final rewardBalance = context.watch<RewardProvider>().balance;
-    final catalogueItems = context.watch<ItemCatalogueProvider>().items;
+    final items = context.watch<ItemCatalogueProvider>().items;
 
     return ListView(
-      padding: EdgeInsets.zero,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 40),
       children: [
-        // ── Hero header + wallet card ──────────────────────────────────────
+        // ── Greeting + wallet ──────────────────────────────────────────────
         GradientHeader(
           gradient: AppColors.homeHeroGradient,
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -115,54 +112,41 @@ class _DashboardContent extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('$_greeting 👋', style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+                        Text('${_greeting()} 👋', style: const TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 2),
-                        Text(userName, style: AppTheme.displayFont(fontSize: 21, fontWeight: FontWeight.w900, color: Colors.white)),
+                        Text(userName, style: AppTheme.displayFont(fontSize: 25, fontWeight: FontWeight.w900, color: Colors.white)),
                       ],
                     ),
                   ),
-                  // Dashboard is the only tab with no shared shell app bar
-                  // (see CustomerHomeScreen), so logout lives here instead.
-                  InkResponse(
-                    onTap: () => context.read<AuthProvider>().logout(),
-                    radius: 22,
-                    child: const Padding(
-                      padding: EdgeInsets.only(right: 4),
-                      child: Icon(Icons.logout, color: Colors.white70, size: 20),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  CircleAvatar(
-                    radius: 26,
-                    backgroundColor: Colors.white.withValues(alpha: 0.15),
-                    child: Text(
-                      userName.isNotEmpty ? userName[0].toUpperCase() : '?',
-                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
-                    ),
-                  ),
+                  _Avatar(name: userName),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
               Container(
+                key: const Key('home-wallet'),
                 width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(gradient: AppColors.walletCardGradient, borderRadius: BorderRadius.circular(AppRadii.r20)),
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadii.r24),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('ECOXCHANGE WALLET', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
-                    const SizedBox(height: 6),
+                    const Text('ECOXCHANGE WALLET', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
+                    const SizedBox(height: 8),
                     Text(
                       rewardBalance != null ? 'RM ${rewardBalance.toStringAsFixed(2)}' : '—',
-                      style: AppTheme.displayFont(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.white),
+                      style: AppTheme.displayFont(fontSize: 38, fontWeight: FontWeight.w900, color: Colors.white),
                     ),
-                    const Text('Current Balance', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                    const SizedBox(height: 14),
+                    const Text('Current Balance', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    const SizedBox(height: 16),
                     Row(
                       children: [
-                        _WalletStat(label: 'LIFETIME EARNED', value: 'RM ${data.totalRewardsEarned.toStringAsFixed(2)}'),
-                        Container(width: 1, height: 26, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 16)),
-                        _WalletStat(label: 'WEIGHT RECYCLED', value: '${data.totalWeightKg.toStringAsFixed(1)} kg'),
+                        Flexible(child: _WalletStat(label: 'LIFETIME EARNED', value: 'RM ${data.totalRewardsEarned.toStringAsFixed(2)}')),
+                        Container(width: 1, height: 34, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 18)),
+                        Flexible(child: _WalletStat(label: 'WEIGHT RECYCLED', value: '${_kg(data.totalWeightKg)} kg')),
                       ],
                     ),
                   ],
@@ -172,117 +156,64 @@ class _DashboardContent extends StatelessWidget {
           ),
         ),
 
-        // ── AI Scan & Classify entry point (Stage 4.6) ──────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-          child: EcoCard(
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ScanClassifyScreen())),
-            child: Row(
-              children: [
-                Container(
-                  height: 44,
-                  width: 44,
-                  decoration: const BoxDecoration(color: AppColors.green50, shape: BoxShape.circle),
-                  child: const Icon(Icons.document_scanner_outlined, color: AppColors.green600, size: 22),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Scan & Classify', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.n800)),
-                      SizedBox(height: 2),
-                      Text('Let AI suggest what item you\'re recycling', style: TextStyle(fontSize: 12, color: AppColors.n500)),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: AppColors.n400),
-              ],
-            ),
-          ),
-        ),
-
-        // ── Active pickup ───────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-          child: data.activePickup != null ? _ActivePickupBanner(pickup: data.activePickup!) : _EmptyRow(message: 'No active pickup right now.'),
-        ),
-
-        // ── Pickup statistics ───────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Your Pickups', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800)),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(child: _StatTile(label: 'Total', value: '${data.totalPickups}', icon: Icons.local_shipping_outlined)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _StatTile(label: 'Completed', value: '${data.completedPickups}', icon: Icons.check_circle_outline)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _StatTile(label: 'Pending', value: '${data.pendingPickups}', icon: Icons.pending_outlined)),
-                ],
-              ),
-            ],
-          ),
-        ),
-
-        // ── Recyclable items teaser ─────────────────────────────────────────
-        if (catalogueItems.isNotEmpty)
+        // ── Your impact this month ─────────────────────────────────────────
+        if (data.monthlyWeightKg != null && data.monthlyCompletedPickups != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 22, 16, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Expanded(child: Text('Recyclable Items', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800))),
-                    GestureDetector(
-                      onTap: onSeeAllItems,
-                      child: const Text('See All', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.green600)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 0.82),
-                  itemCount: catalogueItems.length > 6 ? 6 : catalogueItems.length,
-                  itemBuilder: (context, index) => _ItemTeaserCard(item: catalogueItems[index]),
-                ),
-              ],
-            ),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+            child: _ImpactCard(weightKg: data.monthlyWeightKg!, pickups: data.monthlyCompletedPickups!),
           ),
 
-        // ── Recent pickups ──────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 22, 16, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Recent Pickups', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800)),
-              const SizedBox(height: 6),
-              if (data.recentPickups.isEmpty)
-                _EmptyRow(message: 'You have no pickups yet.')
-              else
-                EcoCard(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: Column(
-                    children: [
-                      for (final pickup in data.recentPickups) ...[
-                        if (pickup != data.recentPickups.first) const Divider(height: 1),
-                        PickupSummaryCard(
-                          pickup: pickup,
-                          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PickupDetailScreen(pickupId: pickup.id))),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-            ],
+        // ── Active pickup ──────────────────────────────────────────────────
+        if (data.activePickup != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: ActivePickupBanner(pickup: data.activePickup!),
+          ),
+
+        // ── Recyclable items ───────────────────────────────────────────────
+        if (items.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+            child: SectionTitleRow(title: 'Recyclable Items', actionLabel: 'See All', onAction: onSeeAllItems),
+          ),
+          SizedBox(
+            height: 132,
+            child: ListView.separated(
+              key: const Key('home-items'),
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: items.length > 10 ? 10 : items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, i) => _ItemCard(item: items[i]),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Container(
+          width: 64,
+          height: 64,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withValues(alpha: 0.15),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 3),
+          ),
+          child: Text(
+            name.isNotEmpty ? name[0].toUpperCase() : '?',
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800),
           ),
         ),
       ],
@@ -301,56 +232,150 @@ class _WalletStat extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 2),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+        ),
+        const SizedBox(height: 3),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(value, style: AppTheme.displayFont(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
       ],
     );
   }
 }
 
-class _ActivePickupBanner extends StatelessWidget {
-  const _ActivePickupBanner({required this.pickup});
+/// "Your Impact This Month" — only the two real monthly figures.
+class _ImpactCard extends StatelessWidget {
+  const _ImpactCard({required this.weightKg, required this.pickups});
+
+  final double weightKg;
+  final int pickups;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('home-impact'),
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF2D4422), AppColors.green700]),
+        borderRadius: BorderRadius.circular(AppRadii.r24),
+        boxShadow: AppShadows.sh2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text('YOUR IMPACT THIS MONTH', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
+              ),
+              const Text('🌱', style: TextStyle(fontSize: 30)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text.rich(
+            TextSpan(
+              style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
+              children: weightKg > 0
+                  ? [
+                      const TextSpan(text: 'You recycled '),
+                      TextSpan(text: '${_kg(weightKg)} kg', style: const TextStyle(color: AppColors.green200)),
+                      const TextSpan(text: ' this month'),
+                    ]
+                  : [const TextSpan(text: 'No completed pickups yet this month')],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Flexible(child: _ImpactStat(value: _kg(weightKg), label: 'kg Recycled')),
+              const SizedBox(width: 28),
+              Flexible(child: _ImpactStat(value: '$pickups', label: 'Pickups Done')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImpactStat extends StatelessWidget {
+  const _ImpactStat({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: AppTheme.displayFont(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.green200))),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))),
+      ],
+    );
+  }
+}
+
+/// The amber "Active Pickup" banner (Home and Pickup Hub). Shows the real
+/// assigned rider and status; no ETA (none exists in the API).
+class ActivePickupBanner extends StatelessWidget {
+  const ActivePickupBanner({super.key, required this.pickup, this.onDark = false});
 
   final PickupSummary pickup;
+
+  /// Pickup Hub shows it inside the green hero (translucent card).
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
     final style = PickupStatusStyle.forStatus(pickup.status);
     final riderName = pickup.assignedRiderName;
+    final subtitle = [
+      if (onDark) pickup.reference,
+      if (riderName != null) 'Rider $riderName',
+      style.label,
+    ].join(' · ');
 
     return GestureDetector(
+      key: const Key('active-pickup'),
       onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PickupDetailScreen(pickupId: pickup.id))),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [AppColors.goldLight, Color(0xFFFDE68A)]),
-          borderRadius: BorderRadius.circular(AppRadii.r16),
-          border: Border.all(color: const Color(0xFFF5D080), width: 1.5),
+          gradient: onDark ? null : const LinearGradient(colors: [AppColors.goldLight, Color(0xFFFDE68A)]),
+          color: onDark ? Colors.white.withValues(alpha: 0.14) : null,
+          borderRadius: BorderRadius.circular(AppRadii.r20),
+          border: Border.all(color: onDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFF5D080), width: 1.5),
         ),
         child: Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(color: AppColors.gold, borderRadius: BorderRadius.circular(AppRadii.r12)),
-              child: const Icon(Icons.access_time_filled, color: Colors.white, size: 22),
+              child: const Icon(Icons.access_time, color: Colors.white, size: 26),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Active Pickup', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF7B4F00))),
+                  Text(
+                    onDark ? '${pickup.reference} · Active' : 'Active Pickup',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: onDark ? Colors.white : const Color(0xFF7B4F00)),
+                  ),
                   const SizedBox(height: 2),
                   Text(
-                    riderName != null ? '$riderName · ${style.label}' : style.label,
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF9B6800)),
+                    onDark ? [if (riderName != null) 'Rider $riderName', style.label].join(' · ') : subtitle,
+                    style: TextStyle(fontSize: 13, color: onDark ? Colors.white70 : const Color(0xFF9B6800)),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Color(0xFF9B6800)),
+            Icon(Icons.chevron_right, color: onDark ? Colors.white70 : const Color(0xFF9B6800)),
           ],
         ),
       ),
@@ -358,70 +383,41 @@ class _ActivePickupBanner extends StatelessWidget {
   }
 }
 
-class _ItemTeaserCard extends StatelessWidget {
-  const _ItemTeaserCard({required this.item});
+class _ItemCard extends StatelessWidget {
+  const _ItemCard({required this.item});
 
   final ItemModel item;
 
   @override
   Widget build(BuildContext context) {
-    return EcoCard(
-      padding: const EdgeInsets.all(10),
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ItemDetailScreen(itemId: item.id))),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadii.r8),
-            child: item.image != null
-                ? AppNetworkImage(url: item.image!, height: 40, width: 40, fit: BoxFit.cover, errorBuilder: (_, _, _) => const Icon(Icons.recycling_outlined, color: AppColors.n300, size: 32))
-                : const Icon(Icons.recycling_outlined, color: AppColors.n300, size: 32),
-          ),
-          const SizedBox(height: 6),
-          Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.n800)),
-          if (item.preliminaryBasePricePerKg != null)
-            Text('RM ${item.preliminaryBasePricePerKg!.toStringAsFixed(2)}/kg', style: const TextStyle(fontSize: 10, color: AppColors.green600)),
-        ],
+    return SizedBox(
+      width: 112,
+      child: EcoCard(
+        padding: const EdgeInsets.all(12),
+        borderRadius: AppRadii.r20,
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ItemDetailScreen(itemId: item.id))),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadii.r8),
+              child: item.image != null
+                  ? AppNetworkImage(
+                      url: item.image!,
+                      height: 44,
+                      width: 44,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const Icon(Icons.recycling_outlined, color: AppColors.n300, size: 34),
+                    )
+                  : const Icon(Icons.recycling_outlined, color: AppColors.n300, size: 34),
+            ),
+            const SizedBox(height: 8),
+            Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.n800)),
+            if (item.preliminaryBasePricePerKg != null)
+              Text('RM ${item.preliminaryBasePricePerKg!.toStringAsFixed(2)}/kg', style: const TextStyle(fontSize: 11, color: AppColors.green600)),
+          ],
+        ),
       ),
-    );
-  }
-}
-
-class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value, required this.icon});
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return EcoCard(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-      child: Column(
-        children: [
-          Icon(icon, color: AppColors.green600, size: 20),
-          const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.n800)),
-          Text(label, style: const TextStyle(fontSize: 10, color: AppColors.n500), textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyRow extends StatelessWidget {
-  const _EmptyRow({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: AppColors.n100, borderRadius: BorderRadius.circular(AppRadii.r12)),
-      child: Text(message, style: const TextStyle(color: AppColors.n500, fontSize: 13)),
     );
   }
 }
