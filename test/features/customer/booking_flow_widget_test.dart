@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ecoxchange_mobile/core/api/api_client.dart';
+import 'package:ecoxchange_mobile/features/customer/data/repositories/customer_recycling_centre_repository.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/address.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/category.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/item.dart';
@@ -81,7 +82,7 @@ Widget _wrap({required PickupBookingProvider booking, required Widget child, Ite
 void main() {
   group('BookingItemsStep', () {
     testWidgets('Continue is disabled until at least one item is selected, then enabled', (tester) async {
-      final booking = PickupBookingProvider(_FakeBookingRepository(), CustomerAddressRepository(ApiClient()));
+      final booking = PickupBookingProvider(_FakeBookingRepository(), CustomerAddressRepository(ApiClient()), CustomerRecyclingCentreRepository(ApiClient()));
       final catalogue = ItemCatalogueProvider(_OneItemCatalogueRepository());
 
       await tester.pumpWidget(_wrap(booking: booking, catalogue: catalogue, child: BookingItemsStep(onNext: () {})));
@@ -102,7 +103,7 @@ void main() {
     });
 
     testWidgets('tapping Continue calls the real estimate endpoint and advances on success', (tester) async {
-      final booking = PickupBookingProvider(_FakeBookingRepository(), CustomerAddressRepository(ApiClient()));
+      final booking = PickupBookingProvider(_FakeBookingRepository(), CustomerAddressRepository(ApiClient()), CustomerRecyclingCentreRepository(ApiClient()));
       final catalogue = ItemCatalogueProvider(_OneItemCatalogueRepository());
       var advanced = false;
 
@@ -159,7 +160,7 @@ void main() {
 /// a widget test.
 class _ReviewSeededBookingProvider extends PickupBookingProvider {
   _ReviewSeededBookingProvider({required ReviewResult review})
-      : super(_SeededReviewRepository(review), CustomerAddressRepository(ApiClient())) {
+      : super(_SeededReviewRepository(review), CustomerAddressRepository(ApiClient()), CustomerRecyclingCentreRepository(ApiClient())) {
     setQuantity(
       const ItemModel(
         id: 1, name: 'Plastic Bottle', category: 'Plastic', image: null, description: null,

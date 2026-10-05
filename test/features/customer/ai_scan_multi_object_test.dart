@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ecoxchange_mobile/core/api/api_client.dart';
+import 'package:ecoxchange_mobile/features/customer/data/repositories/customer_recycling_centre_repository.dart';
 import 'package:ecoxchange_mobile/core/api/api_config.dart';
 import 'package:ecoxchange_mobile/core/api/api_exception.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/ai_classification.dart';
@@ -529,6 +530,7 @@ void main() {
       final booking = PickupBookingProvider(
         repo,
         CustomerAddressRepository(ApiClient()),
+        CustomerRecyclingCentreRepository(ApiClient()),
         prefillQuantities: scan.reviewedQuantities,
         prefillScanLogId: scan.scanLogId,
         prefillImageUrl: scan.uploadedImageUrl,
@@ -547,6 +549,7 @@ void main() {
       final booking = PickupBookingProvider(
         _BookingRepo(),
         CustomerAddressRepository(ApiClient()),
+        CustomerRecyclingCentreRepository(ApiClient()),
         prefillQuantities: [
           PrefillItemQuantity(item: _item(1, 'Plastic Bottle'), quantity: 5),
           PrefillItemQuantity(item: _item(3, 'Plastic Bag'), quantity: 0),
@@ -560,6 +563,7 @@ void main() {
       final booking = PickupBookingProvider(
         _BookingRepo(),
         CustomerAddressRepository(ApiClient()),
+        CustomerRecyclingCentreRepository(ApiClient()),
         prefillItem: _item(1, 'Plastic Bottle'),
       );
 

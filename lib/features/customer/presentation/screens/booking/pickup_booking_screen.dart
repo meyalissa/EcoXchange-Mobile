@@ -7,6 +7,7 @@ import '../../../data/models/item.dart';
 import '../../../data/repositories/customer_address_repository.dart';
 import '../../../data/repositories/customer_catalogue_repository.dart';
 import '../../../data/repositories/customer_pickup_booking_repository.dart';
+import '../../../data/repositories/customer_recycling_centre_repository.dart';
 import '../../providers/item_catalogue_provider.dart';
 import '../../providers/pickup_booking_provider.dart';
 import '../../widgets/booking_step_header.dart';
@@ -94,6 +95,7 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
           create: (context) => PickupBookingProvider(
             context.read<CustomerPickupBookingRepository>(),
             context.read<CustomerAddressRepository>(),
+            context.read<CustomerRecyclingCentreRepository>(),
             prefillItem: widget.prefillItem,
             prefillQuantities: widget.prefillQuantities,
             prefillScanLogId: widget.prefillScanLogId,

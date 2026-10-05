@@ -3,10 +3,18 @@ import 'package:flutter/foundation.dart';
 import '../../../../core/api/api_exception.dart';
 import '../../data/models/address.dart';
 import '../../data/models/item.dart';
+import '../../data/models/nearby_recycling_centre.dart';
 import '../../data/models/pickup_booking.dart';
 import '../../data/models/pickup_detail.dart';
 import '../../data/repositories/customer_address_repository.dart';
 import '../../data/repositories/customer_pickup_booking_repository.dart';
+import '../../data/repositories/customer_recycling_centre_repository.dart';
+
+/// Pickup Available (the real, item-basket-aware ELIGIBILITY list — server
+/// logic unchanged) vs All Centres (real nearby-centre DISCOVERY,
+/// including external Google-Places-discovered businesses that are never
+/// selectable for an actual pickup). See BookingCentreStep's docblock.
+enum CentreTab { pickupAvailable, all }
 
 /// One reviewed line handed from a multi-object AI scan into the booking
 /// flow: the item and the quantity the user accepted or corrected. Only a
@@ -50,7 +58,8 @@ class PickupBookingProvider extends ChangeNotifier {
   /// skipped.
   PickupBookingProvider(
     this._bookingRepo,
-    this._addressRepo, {
+    this._addressRepo,
+    this._centreRepo, {
     ItemModel? prefillItem,
     List<PrefillItemQuantity>? prefillQuantities,
     int? prefillScanLogId,
@@ -70,6 +79,7 @@ class PickupBookingProvider extends ChangeNotifier {
 
   final CustomerPickupBookingRepository _bookingRepo;
   final CustomerAddressRepository _addressRepo;
+  final CustomerRecyclingCentreRepository _centreRepo;
 
   bool _hasAiSuggestedQuantities = false;
 
@@ -236,6 +246,55 @@ class PickupBookingProvider extends ChangeNotifier {
     _selectedCentre = centre;
     _invalidateFromCentre();
     notifyListeners();
+  }
+
+  // ── Step 3b: All Centres (DISCOVERY, not eligibility) ──────────────────
+  //
+  // A completely separate concept from the ELIGIBILITY list above — see
+  // RecyclingCentreController::nearby()'s docblock. Lazily fetched only
+  // once the customer actually switches to this tab (never on every
+  // Centre-step load), using the SAME selected address's coordinates so
+  // "nearby" means the same thing in both tabs. An external/non-pickup-
+  // supported centre here is browsable (view details / open Google Maps)
+  // but is NEVER assigned to `_selectedCentre` — only `selectCentre()`
+  // above (fed by the Pickup Available tab's real `EligibleCentre` rows)
+  // can do that, so there is no code path by which an external centre
+  // could end up submitted as an EcoXchange pickup.
+  CentreTab _centreTab = CentreTab.pickupAvailable;
+  List<NearbyRecyclingCentre> _nearbyCentres = const [];
+  bool _isLoadingNearby = false;
+  ApiException? _nearbyError;
+
+  CentreTab get centreTab => _centreTab;
+  List<NearbyRecyclingCentre> get nearbyCentres => _nearbyCentres;
+  bool get isLoadingNearby => _isLoadingNearby;
+  ApiException? get nearbyError => _nearbyError;
+
+  void setCentreTab(CentreTab tab) {
+    if (_centreTab == tab) return;
+    _centreTab = tab;
+    notifyListeners();
+    if (tab == CentreTab.all && _nearbyCentres.isEmpty && !_isLoadingNearby) {
+      loadNearbyCentres();
+    }
+  }
+
+  Future<void> loadNearbyCentres() async {
+    final address = _selectedAddress;
+    if (address == null || address.latitude == null || address.longitude == null) return;
+
+    _isLoadingNearby = true;
+    _nearbyError = null;
+    notifyListeners();
+
+    try {
+      _nearbyCentres = await _centreRepo.getNearby(lat: address.latitude!, lng: address.longitude!);
+    } on ApiException catch (e) {
+      _nearbyError = e;
+    } finally {
+      _isLoadingNearby = false;
+      notifyListeners();
+    }
   }
 
   // ── Step 4: Date / Time / Notes ────────────────────────────────────────
@@ -417,6 +476,7 @@ class PickupBookingProvider extends ChangeNotifier {
     _centresResult = null;
     _selectedCentre = null;
     _reviewResult = null;
+    _nearbyCentres = const [];
   }
 
   void _invalidateFromCentre() {

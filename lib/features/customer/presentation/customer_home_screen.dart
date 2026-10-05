@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/eco_app_bar.dart';
 import '../../../core/widgets/eco_bottom_nav.dart';
+import '../data/repositories/customer_address_repository.dart';
 import '../data/repositories/customer_catalogue_repository.dart';
 import '../data/repositories/customer_dashboard_repository.dart';
 import '../data/repositories/customer_pickup_repository.dart';
@@ -65,7 +66,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         ChangeNotifierProvider(create: (context) => DashboardProvider(context.read<CustomerDashboardRepository>())),
         ChangeNotifierProvider(create: (context) => PickupListProvider(context.read<CustomerPickupRepository>())),
         ChangeNotifierProvider(create: (context) => ItemCatalogueProvider(context.read<CustomerCatalogueRepository>())),
-        ChangeNotifierProvider(create: (context) => RecyclingCentreListProvider(context.read<CustomerRecyclingCentreRepository>())),
+        ChangeNotifierProvider(
+          create: (context) => RecyclingCentreListProvider(
+            context.read<CustomerRecyclingCentreRepository>(),
+            context.read<CustomerAddressRepository>(),
+          ),
+        ),
         ChangeNotifierProvider(create: (context) => RewardProvider(context.read<CustomerRewardRepository>())),
       ],
       child: Builder(

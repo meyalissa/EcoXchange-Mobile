@@ -7,6 +7,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ecoxchange_mobile/core/api/api_client.dart';
+import 'package:ecoxchange_mobile/features/customer/data/repositories/customer_recycling_centre_repository.dart';
 import 'package:ecoxchange_mobile/core/api/api_exception.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/address.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/item.dart';
@@ -122,7 +123,7 @@ class _FakeAddressRepository extends CustomerAddressRepository {
 void main() {
   group('PickupBookingProvider — item selection', () {
     test('initial state has no selected items and cannot proceed', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
 
       expect(provider.hasSelectedItems, isFalse);
       expect(provider.canProceedFromItems, isFalse);
@@ -130,7 +131,7 @@ void main() {
     });
 
     test('setQuantity adds an item and incrementQuantity/decrementQuantity adjust it', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       final item = _item();
 
       provider.setQuantity(item, 2);
@@ -146,7 +147,7 @@ void main() {
     });
 
     test('quantity never goes negative — decrementing to 0 removes the item entirely', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       final item = _item();
 
       provider.setQuantity(item, 1);
@@ -158,7 +159,7 @@ void main() {
     });
 
     test('setQuantity with a zero/negative value removes the item (never stores an invalid quantity)', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       final item = _item();
 
       provider.setQuantity(item, 3);
@@ -169,7 +170,7 @@ void main() {
     });
 
     test('removeItem clears the selection', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       final item = _item();
       provider.setQuantity(item, 2);
 
@@ -193,7 +194,7 @@ void main() {
         'note': 'Preliminary estimate only.',
       });
       final repo = _FakeBookingRepository(estimateResult: estimate);
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 2);
 
       final ok = await provider.loadEstimate();
@@ -206,7 +207,7 @@ void main() {
 
     test('loadEstimate() does nothing when no items are selected', () async {
       final repo = _FakeBookingRepository();
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
 
       final ok = await provider.loadEstimate();
 
@@ -216,7 +217,7 @@ void main() {
 
     test('a failed estimate surfaces the real ApiException, not fake data', () async {
       final repo = _FakeBookingRepository(throwOn: const NetworkException('Could not connect.'));
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 1);
 
       final ok = await provider.loadEstimate();
@@ -229,7 +230,7 @@ void main() {
     test('changing the item selection invalidates any already-fetched estimate/centre/review', () async {
       final estimate = PickupEstimate.fromJson({'items': [], 'total_weight_kg': 0.0, 'preliminary_reward': 0.0, 'unavailable_item_ids': [], 'note': null});
       final repo = _FakeBookingRepository(estimateResult: estimate);
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       final item = _item();
       provider.setQuantity(item, 1);
       await provider.loadEstimate();
@@ -244,7 +245,7 @@ void main() {
   group('PickupBookingProvider — address', () {
     test('loadAddresses() auto-selects the default address', () async {
       final addresses = [_address(id: 1, isDefault: false), _address(id: 2, isDefault: true)];
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(addresses: addresses));
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(addresses: addresses), CustomerRecyclingCentreRepository(ApiClient()));
 
       await provider.loadAddresses();
 
@@ -254,7 +255,7 @@ void main() {
 
     test('loadAddresses() falls back to the first address when none is marked default', () async {
       final addresses = [_address(id: 5, isDefault: false)];
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(addresses: addresses));
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(addresses: addresses), CustomerRecyclingCentreRepository(ApiClient()));
 
       await provider.loadAddresses();
 
@@ -263,7 +264,7 @@ void main() {
 
     test('selectAddress() overrides the auto-selected default', () async {
       final addresses = [_address(id: 1, isDefault: true), _address(id: 2)];
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(addresses: addresses));
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(addresses: addresses), CustomerRecyclingCentreRepository(ApiClient()));
       await provider.loadAddresses();
 
       provider.selectAddress(addresses[1]);
@@ -272,7 +273,7 @@ void main() {
     });
 
     test('cannot proceed from address step with none selected', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       expect(provider.canProceedFromAddress, isFalse);
     });
 
@@ -280,6 +281,7 @@ void main() {
       final provider = PickupBookingProvider(
         _FakeBookingRepository(),
         _FakeAddressRepository(throwOn: const NetworkException('Could not connect.')),
+        CustomerRecyclingCentreRepository(ApiClient()),
       );
 
       await provider.loadAddresses();
@@ -290,7 +292,7 @@ void main() {
     });
 
     test('addAddressAndSelect appends the real created address and selects it', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       final newAddress = _address(id: 99);
 
       provider.addAddressAndSelect(newAddress);
@@ -303,7 +305,7 @@ void main() {
       final centresResult = CentresResult.fromJson({'centres': [], 'preliminary_reward': 0.0, 'unavailable_item_ids': [], 'message': null});
       final repo = _FakeBookingRepository(centresResult: centresResult);
       final addresses = [_address(id: 1), _address(id: 2)];
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository(addresses: addresses));
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(addresses: addresses), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 1);
       provider.selectAddress(addresses[0]);
       await provider.loadCentres();
@@ -326,7 +328,7 @@ void main() {
         'message': null,
       });
       final repo = _FakeBookingRepository(centresResult: result);
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 1);
       provider.addAddressAndSelect(_address(id: 7));
 
@@ -338,7 +340,7 @@ void main() {
     });
 
     test('an ineligible centre can never be selected', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
 
       provider.selectCentre(_centre(eligible: false));
 
@@ -347,7 +349,7 @@ void main() {
     });
 
     test('an eligible centre can be selected', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
 
       provider.selectCentre(_centre(eligible: true));
 
@@ -358,7 +360,7 @@ void main() {
 
   group('PickupBookingProvider — schedule', () {
     test('cannot proceed from schedule without both a date and a time slot', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       expect(provider.canProceedFromSchedule, isFalse);
 
       provider.setPickupDate(DateTime(2026, 12, 1));
@@ -369,7 +371,7 @@ void main() {
     });
 
     test('setPickupTimeSlot only ever stores one of the real slot values the caller passes', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setPickupTimeSlot('12:00-14:00');
       expect(provider.pickupTimeSlot, '12:00-14:00');
     });
@@ -412,7 +414,7 @@ void main() {
 
     test('loadReview() stores the real ready_to_submit=true result', () async {
       final repo = _FakeBookingRepository(reviewResult: readyReview());
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 1);
       provider.addAddressAndSelect(_address());
       provider.selectCentre(_centre());
@@ -426,7 +428,7 @@ void main() {
 
     test('loadReview() stores the real reasons when the server says it is not ready', () async {
       final repo = _FakeBookingRepository(reviewResult: notReadyReview());
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 1);
       provider.addAddressAndSelect(_address());
       provider.selectCentre(_centre());
@@ -440,7 +442,7 @@ void main() {
 
     test('loadReview() does nothing without an address and a centre already selected', () async {
       final repo = _FakeBookingRepository(reviewResult: readyReview());
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 1);
 
       final ok = await provider.loadReview();
@@ -456,6 +458,7 @@ void main() {
       final provider = PickupBookingProvider(
         _ThrowingImageBookingRepository(const ServerException('Upload failed.')),
         _FakeAddressRepository(),
+        CustomerRecyclingCentreRepository(ApiClient()),
       );
 
       final ok = await provider.uploadImage('/tmp/fake.jpg');
@@ -467,7 +470,7 @@ void main() {
     });
 
     test('clearImage resets the scan_log_id and uploaded image url', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.clearImage();
       expect(provider.scanLogId, isNull);
       expect(provider.uploadedImageUrl, isNull);
@@ -476,7 +479,7 @@ void main() {
 
   group('PickupBookingProvider — submission gating', () {
     test('canSubmit is false until every required step is filled in', () {
-      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository());
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       expect(provider.canSubmit, isFalse);
 
       provider.setQuantity(_item(), 1);
@@ -491,7 +494,7 @@ void main() {
 
     test('submit() is a no-op (never calls the repository) while a submission is already in flight', () async {
       final repo = _SlowSubmitRepository();
-      final provider = PickupBookingProvider(repo, _FakeAddressRepository());
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       provider.setQuantity(_item(), 1);
       provider.addAddressAndSelect(_address());
       provider.selectCentre(_centre());
