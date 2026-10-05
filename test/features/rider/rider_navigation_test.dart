@@ -18,6 +18,7 @@ import 'package:ecoxchange_mobile/features/auth/data/auth_repository.dart';
 import 'package:ecoxchange_mobile/features/auth/data/models/user_model.dart';
 import 'package:ecoxchange_mobile/features/auth/presentation/auth_provider.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/pagination.dart';
+import 'package:ecoxchange_mobile/features/customer/data/models/pickup_detail.dart' show PickupTrackingRoute;
 import 'package:ecoxchange_mobile/features/rider/data/models/rider_dashboard.dart';
 import 'package:ecoxchange_mobile/features/rider/data/models/rider_pickup_detail.dart';
 import 'package:ecoxchange_mobile/features/rider/data/models/rider_pickup_summary.dart';
@@ -30,6 +31,7 @@ import 'package:ecoxchange_mobile/features/rider/presentation/rider_home_screen.
 import 'package:ecoxchange_mobile/features/rider/presentation/screens/rider_route_screen.dart';
 
 import '../../fixtures/rider_fixtures.dart';
+import '../fixtures/customer_pickup_fixtures.dart' show trackingRouteJson;
 
 String _dateKey(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 final _today = _dateKey(DateTime.now());
@@ -52,7 +54,13 @@ class _AuthRepo extends AuthRepository {
 /// The "server": per-pickup assignment status, pickup lists, detail and the
 /// accept/start/collect transitions. Records every request.
 class _Server extends RiderPickupRepository {
-  _Server({Map<int, String>? statuses, this.completed = const [], this.locations, this.addressHasCoordinates = true}) : super(ApiClient()) {
+  _Server({
+    Map<int, String>? statuses,
+    this.completed = const [],
+    this.locations,
+    this.addressHasCoordinates = true,
+    this.trackingRoute,
+  }) : super(ApiClient()) {
     this.statuses.addAll(statuses ?? {});
   }
 
@@ -60,6 +68,7 @@ class _Server extends RiderPickupRepository {
   final List<Map<String, dynamic>> completed;
   final Map<String, dynamic>? locations;
   final bool addressHasCoordinates;
+  final Map<String, dynamic>? trackingRoute;
   final List<String> requests = [];
 
   Map<String, dynamic> _summary(int id, String a) => riderPickupSummaryJson(
@@ -86,6 +95,7 @@ class _Server extends RiderPickupRepository {
         assignmentStatus: statuses[id] ?? 'completed',
         locations: locations,
         addressHasCoordinates: addressHasCoordinates,
+        trackingRoute: trackingRoute,
       ));
 
   @override
@@ -135,11 +145,17 @@ class _Profile extends RiderProfileRepository {
   Future<RiderProfile> getProfile() async => RiderProfile.fromJson(riderProfileJson());
 }
 
+class _RouteCall {
+  const _RouteCall(this.markers, this.route);
+  final List<RouteMarkerSpec> markers;
+  final PickupTrackingRoute? route;
+}
+
 /// Records what the map was asked to draw.
 class _MapProbe {
-  final List<List<RouteMarkerSpec>> calls = [];
-  Widget build(BuildContext context, List<RouteMarkerSpec> markers) {
-    calls.add(markers);
+  final List<_RouteCall> calls = [];
+  Widget build(BuildContext context, List<RouteMarkerSpec> markers, PickupTrackingRoute? route) {
+    calls.add(_RouteCall(markers, route));
     return Container(key: const Key('fake-map'), color: Colors.grey);
   }
 }
@@ -245,7 +261,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('fake-map')), findsOneWidget);
-      final markers = probe.calls.last;
+      final markers = probe.calls.last.markers;
       expect(markers.map((m) => m.id), ['pickup']);
       expect(markers.single.point.latitude, 3.0428);
       expect(markers.single.point.longitude, 101.5838);
@@ -301,8 +317,14 @@ void main() {
       String status, {
       Map<String, dynamic>? locations,
       bool addressHasCoordinates = true,
+      Map<String, dynamic>? trackingRoute,
     }) async {
-      final server = _Server(statuses: {15: status}, locations: locations, addressHasCoordinates: addressHasCoordinates);
+      final server = _Server(
+        statuses: {15: status},
+        locations: locations,
+        addressHasCoordinates: addressHasCoordinates,
+        trackingRoute: trackingRoute,
+      );
       final probe = _MapProbe();
       await tester.pumpWidget(Provider<RiderPickupRepository>.value(
         value: server,
@@ -319,7 +341,7 @@ void main() {
         'recycling_centre': {'latitude': 3.03, 'longitude': 101.58},
       });
 
-      final markers = probe.calls.last;
+      final markers = probe.calls.last.markers;
       expect(markers.map((m) => m.id), ['rider', 'pickup', 'centre']);
       expect(markers.first.point.latitude, 3.05);
       expect(markers.last.title, 'EcoGreen Subang Jaya');
@@ -335,8 +357,8 @@ void main() {
     testWidgets('without a locations pickup point, the stored address coordinates are the pin', (tester) async {
       final (_, probe) = await pumpRoute(tester, 'accepted', locations: {'rider': null, 'pickup': null, 'recycling_centre': null});
 
-      expect(probe.calls.last.map((m) => m.id), ['pickup']);
-      expect(probe.calls.last.single.point.latitude, 3.0428); // address.latitude in the fixture
+      expect(probe.calls.last.markers.map((m) => m.id), ['pickup']);
+      expect(probe.calls.last.markers.single.point.latitude, 3.0428); // address.latitude in the fixture
     });
 
     testWidgets('with zero stored coordinates anywhere, the map still renders instead of a text placeholder', (tester) async {
@@ -349,11 +371,89 @@ void main() {
 
       // The map builder was still called -- with zero markers -- rather than
       // being replaced by a "no coordinates" text block that hides the map.
-      expect(probe.calls.last, isEmpty);
+      expect(probe.calls.last.markers, isEmpty);
       expect(find.byKey(const Key('fake-map')), findsOneWidget);
       expect(find.byKey(const Key('route-no-coordinates')), findsNothing);
       // No destination to route to, so Directions correctly hides itself.
       expect(find.byKey(const Key('route-directions')), findsNothing);
+    });
+
+    testWidgets('a server-computed route reaches the map as a decoded polyline', (tester) async {
+      final (_, probe) = await pumpRoute(
+        tester,
+        'en_route',
+        locations: {
+          'rider': {'latitude': 3.05, 'longitude': 101.59},
+          'pickup': {'latitude': 3.0428, 'longitude': 101.5838},
+          'recycling_centre': null,
+        },
+        trackingRoute: trackingRouteJson(distanceMeters: 1800, durationSeconds: 240, polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@'),
+      );
+
+      final route = probe.calls.last.route;
+      expect(route, isNotNull);
+      expect(route!.distanceMeters, 1800);
+      expect(route.durationSeconds, 240);
+      // Same real Google-encoded sample used by the customer tracking
+      // tests -- decodes to 3 points, confirming the exact server string
+      // reaches the map builder undistorted (decoding itself happens
+      // inside the map widget via the shared decodePolyline()).
+      expect(route.polyline, '_p~iF~ps|U_ulLnnqC_mqNvxq`@');
+    });
+
+    testWidgets('no server route (tracking_route null) still renders the map, with markers but no polyline data', (tester) async {
+      final (_, probe) = await pumpRoute(tester, 'accepted');
+
+      expect(find.byKey(const Key('fake-map')), findsOneWidget);
+      expect(probe.calls.last.route, isNull);
+      expect(probe.calls.last.markers, isNotEmpty); // the pickup marker still exists
+    });
+
+    testWidgets('a malformed/empty polyline string never crashes the screen', (tester) async {
+      final (_, probe) = await pumpRoute(
+        tester,
+        'en_route',
+        trackingRoute: trackingRouteJson(polyline: ''),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('fake-map')), findsOneWidget);
+      expect(probe.calls.last.route?.polyline, '');
+    });
+
+    testWidgets('the route screen silently polls for a fresh route while the job is live-trackable', (tester) async {
+      final (server, _) = await pumpRoute(tester, 'en_route', trackingRoute: trackingRouteJson());
+      expect(server.requests.where((r) => r.startsWith('GET')).length, 1);
+
+      await tester.pump(const Duration(seconds: 8)); // fires the first poll tick
+      await tester.pumpAndSettle();
+
+      expect(server.requests.where((r) => r.startsWith('GET')).length, 2);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('polling stops once the assignment leaves a live-trackable state', (tester) async {
+      final (server, _) = await pumpRoute(tester, 'en_route', trackingRoute: trackingRouteJson());
+      expect(server.requests.where((r) => r.startsWith('GET')).length, 1);
+
+      server.statuses[15] = 'completed'; // changes underneath the open screen
+      await tester.pump(const Duration(seconds: 8)); // the poll that observes the change
+      await tester.pumpAndSettle();
+      expect(server.requests.where((r) => r.startsWith('GET')).length, 2);
+
+      await tester.pump(const Duration(seconds: 20)); // would be further ticks if still polling
+      await tester.pumpAndSettle();
+      expect(server.requests.where((r) => r.startsWith('GET')).length, 2); // unchanged -- polling stopped
+    });
+
+    testWidgets('leaving the route screen stops polling', (tester) async {
+      final (server, _) = await pumpRoute(tester, 'en_route', trackingRoute: trackingRouteJson());
+      expect(server.requests.where((r) => r.startsWith('GET')).length, 1);
+
+      await tester.pumpWidget(const SizedBox.shrink()); // disposes the screen and its timer
+
+      await tester.pump(const Duration(seconds: 20));
+      expect(server.requests.where((r) => r.startsWith('GET')).length, 1); // no further polls
     });
 
     testWidgets('the CTA runs the next action only after confirmation, then shows the server state', (tester) async {

@@ -32,16 +32,26 @@
   <title>ecoxchange_mobile</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- Google Maps JS SDK for the web build of the Customer tracking map
-       (google_maps_flutter web plugin). Reuses the existing, referrer-
-       restricted GOOGLE_MAPS_API_KEY -- browser Maps keys are designed to
-       be client-embedded (protected by HTTP-referrer restriction, not
-       secrecy), unlike the server-side Routes API key. If this key's
-       referrer allowlist doesn't include localhost, map tiles may not
-       render, but this has no effect on the tracking data itself
-       (distance/ETA/freshness/coordinates), which never goes through
-       Maps JS. -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA7ZCOnqHgx7UcAgc7UaNJdjBv2vnzFxRM" async></script>
+  <!-- Google Maps JS SDK for the web build of the tracking/route maps
+       (google_maps_flutter_web). The key itself is never written here --
+       maps_config.js (gitignored, local-only; see maps_config.example.js)
+       sets window.GOOGLE_MAPS_API_KEY, and this script tag is created
+       dynamically so a missing/empty local config simply leaves Maps JS
+       unloaded rather than requesting the API with an empty key. A Maps
+       JavaScript key is inherently client-visible in any web app (there is
+       no way to keep it secret once loaded in a browser) -- it's protected
+       by HTTP-referrer restriction in Google Cloud Console, not secrecy. -->
+  <script src="maps_config.js"></script>
+  <script>
+    (function () {
+      var key = window.GOOGLE_MAPS_API_KEY;
+      if (!key) return;
+      var script = document.createElement('script');
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key);
+      script.async = true;
+      document.head.appendChild(script);
+    })();
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

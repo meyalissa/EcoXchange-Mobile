@@ -105,7 +105,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(user.name, style: AppTheme.displayFont(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
+                        Text(user.name, style: AppTheme.headerIdentityName()),
                         const SizedBox(height: 4),
                         Text(user.email, style: const TextStyle(color: Colors.white70, fontSize: 14)),
                         if (user.phoneNumber != null) Text(user.phoneNumber!, style: const TextStyle(color: Colors.white70, fontSize: 14)),

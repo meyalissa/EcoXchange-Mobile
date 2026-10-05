@@ -49,6 +49,7 @@ Map<String, dynamic> riderPickupDetailJson({
   String assignmentStatus = 'accepted',
   Map<String, dynamic>? locations,
   bool addressHasCoordinates = true,
+  Map<String, dynamic>? trackingRoute,
 }) =>
     {
       'id': id,
@@ -108,6 +109,7 @@ Map<String, dynamic> riderPickupDetailJson({
         'completed_at': null,
       },
       'locations': locations ?? {'rider': null, 'pickup': {'latitude': 3.0428, 'longitude': 101.5838}, 'recycling_centre': null},
+      'tracking_route': trackingRoute,
     };
 
 Map<String, dynamic> riderProfileJson({bool withCentre = true}) => {

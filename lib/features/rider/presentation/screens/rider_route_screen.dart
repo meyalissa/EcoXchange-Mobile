@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +9,9 @@ import '../../../../core/maps/maps_key_gate.dart';
 import '../../../../core/models/geo_point.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/design_tokens.dart';
+import '../../../../core/utils/polyline_codec.dart';
 import '../../../../core/widgets/async_state_view.dart';
+import '../../../customer/data/models/pickup_detail.dart' show PickupTrackingRoute;
 import '../../data/models/rider_pickup_action.dart';
 import '../../data/models/rider_pickup_detail.dart';
 import '../../data/repositories/rider_pickup_repository.dart';
@@ -55,16 +59,19 @@ Uri directionsUri(GeoPoint destination) => Uri.parse(
       'https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}&travelmode=driving',
     );
 
-/// Builds the map for [markers]. Injectable so widget tests don't need the
-/// native Google Maps platform view.
-typedef RouteMapBuilder = Widget Function(BuildContext context, List<RouteMarkerSpec> markers);
+/// Builds the map for [markers] and, when the server has computed one, the
+/// road route to follow. Injectable so widget tests don't need the native
+/// Google Maps platform view.
+typedef RouteMapBuilder = Widget Function(BuildContext context, List<RouteMarkerSpec> markers, PickupTrackingRoute? route);
 
-Widget defaultRouteMapBuilder(BuildContext context, List<RouteMarkerSpec> markers) => _KeyCheckedMap(markers: markers);
+Widget defaultRouteMapBuilder(BuildContext context, List<RouteMarkerSpec> markers, PickupTrackingRoute? route) =>
+    _KeyCheckedMap(markers: markers, route: route);
 
 class _KeyCheckedMap extends StatelessWidget {
-  const _KeyCheckedMap({required this.markers});
+  const _KeyCheckedMap({required this.markers, this.route});
 
   final List<RouteMarkerSpec> markers;
+  final PickupTrackingRoute? route;
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +79,7 @@ class _KeyCheckedMap extends StatelessWidget {
       future: isMapsApiKeyConfigured(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return Container(color: AppColors.n100);
-        if (snapshot.data!) return _GoogleRouteMap(markers: markers);
+        if (snapshot.data!) return _GoogleRouteMap(markers: markers, route: route);
         return Container(
           key: const Key('route-map-not-configured'),
           color: AppColors.n100,
@@ -126,6 +133,19 @@ class RiderRouteScreen extends StatefulWidget {
 
 class _RiderRouteScreenState extends State<RiderRouteScreen> {
   RiderPickupDetailProvider? _provider;
+  Timer? _pollTimer;
+
+  /// Route-refresh cadence while this screen is open -- matches the
+  /// customer tracking screen's own poll interval (PickupDetailScreen),
+  /// deliberately separate from PickupTrackingService's server-side
+  /// route-recompute TTL (30s): this just re-reads whatever the server
+  /// currently has, it never forces a new Routes API call.
+  static const _pollInterval = Duration(seconds: 8);
+
+  /// Assignment statuses worth polling for -- a route only exists once the
+  /// rider has accepted (see PickupController::routeFor's gating) and stops
+  /// mattering once the job is done.
+  static const _pollableAssignmentStatuses = {'accepted', 'en_route', 'collecting'};
 
   @override
   void initState() {
@@ -137,6 +157,8 @@ class _RiderRouteScreenState extends State<RiderRouteScreen> {
   void didUpdateWidget(RiderRouteScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pickupId != widget.pickupId) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
       _provider?.dispose();
       _createProvider();
     }
@@ -144,11 +166,30 @@ class _RiderRouteScreenState extends State<RiderRouteScreen> {
 
   void _createProvider() {
     final id = widget.pickupId;
-    _provider = id == null ? null : (RiderPickupDetailProvider(context.read<RiderPickupRepository>(), id)..load());
+    final provider = id == null ? null : RiderPickupDetailProvider(context.read<RiderPickupRepository>(), id);
+    _provider = provider;
+    provider?.addListener(_syncPolling);
+    provider?.load();
+  }
+
+  /// Starts/stops the polling timer to match the just-loaded pickup's
+  /// state. Idempotent, so it's safe to call on every provider change
+  /// (initial load, a confirmed action, or a previous poll tick).
+  void _syncPolling() {
+    final status = _provider?.pickup?.assignment?.status;
+    final shouldPoll = status != null && _pollableAssignmentStatuses.contains(status);
+
+    if (shouldPoll) {
+      _pollTimer ??= Timer.periodic(_pollInterval, (_) => _provider?.refreshSilently());
+    } else {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    }
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _provider?.dispose();
     super.dispose();
   }
@@ -265,7 +306,7 @@ class _RouteContent extends StatelessWidget {
         // itself (_GoogleRouteMap falls back to a neutral default camera
         // when markers is empty). The "Directions" button already hides
         // itself when there's no destination to route to.
-        Positioned.fill(child: mapBuilder(context, markers)),
+        Positioned.fill(child: mapBuilder(context, markers, detail.trackingRoute)),
         // Top: where to go (no distance/ETA — none is computed server-side).
         Positioned(
           top: topInset + 10,
@@ -417,9 +458,10 @@ class _RouteContent extends StatelessWidget {
 }
 
 class _GoogleRouteMap extends StatefulWidget {
-  const _GoogleRouteMap({required this.markers});
+  const _GoogleRouteMap({required this.markers, this.route});
 
   final List<RouteMarkerSpec> markers;
+  final PickupTrackingRoute? route;
 
   @override
   State<_GoogleRouteMap> createState() => _GoogleRouteMapState();
@@ -457,6 +499,7 @@ class _GoogleRouteMapState extends State<_GoogleRouteMap> {
   /// held up waiting for these, and one icon failing never affects another.
   final Map<String, BitmapDescriptor> _customIcons = {};
   bool _iconsRequested = false;
+  GoogleMapController? _controller;
 
   @override
   void didChangeDependencies() {
@@ -477,10 +520,22 @@ class _GoogleRouteMapState extends State<_GoogleRouteMap> {
     }
   }
 
+  @override
+  void didUpdateWidget(covariant _GoogleRouteMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The rider's position (and so the route) can change while this screen
+    // stays open (see the Route screen's live-location poll) -- re-fit so
+    // a moved rider/updated route stays in view, the same way the camera
+    // is fit on first load.
+    if (oldWidget.markers != widget.markers || oldWidget.route?.polyline != widget.route?.polyline) {
+      _fit(_controller);
+    }
+  }
+
   LatLng _latLng(GeoPoint p) => LatLng(p.latitude, p.longitude);
 
-  Future<void> _fit(GoogleMapController controller) async {
-    if (widget.markers.length < 2) return;
+  Future<void> _fit(GoogleMapController? controller) async {
+    if (controller == null || widget.markers.length < 2) return;
     final lats = widget.markers.map((m) => m.point.latitude);
     final lngs = widget.markers.map((m) => m.point.longitude);
     final bounds = LatLngBounds(
@@ -496,6 +551,7 @@ class _GoogleRouteMapState extends State<_GoogleRouteMap> {
   @override
   Widget build(BuildContext context) {
     final markers = widget.markers;
+    final route = widget.route;
     final initialCamera = markers.isEmpty
         ? _fallbackCamera
         : CameraPosition(
@@ -516,11 +572,27 @@ class _GoogleRouteMapState extends State<_GoogleRouteMap> {
             anchor: _customIcons.containsKey(m.id) ? const Offset(0.5, 0.5) : const Offset(0.5, 1.0),
           ),
       },
+      polylines: {
+        // The real road route from the rider's current position to the
+        // pickup, server-computed via Google Routes API -- never a
+        // straight line between the markers. Same rendering approach as
+        // CustomerTrackingMap (see that widget).
+        if (route != null)
+          Polyline(
+            polylineId: const PolylineId('rider-route'),
+            points: [for (final p in decodePolyline(route.polyline)) LatLng(p.latitude, p.longitude)],
+            color: AppColors.green600,
+            width: 4,
+          ),
+      },
       padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 80, bottom: 260),
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
-      onMapCreated: _fit,
+      onMapCreated: (controller) {
+        _controller = controller;
+        _fit(controller);
+      },
     );
   }
 }

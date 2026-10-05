@@ -127,7 +127,7 @@ class _ProfileContent extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(profile.name, style: AppTheme.displayFont(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
+                        Text(profile.name, style: AppTheme.headerIdentityName()),
                         const SizedBox(height: 2),
                         Text(profile.email, style: const TextStyle(color: Colors.white70, fontSize: 14)),
                         if (vehicle.isNotEmpty) ...[

@@ -1,25 +1,34 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
-/// EcoXchange Mobile — whether a Google Maps key is built into this APK.
+import 'maps_key_gate_io.dart' if (dart.library.js_interop) 'maps_key_gate_web.dart' as platform;
+
+/// EcoXchange Mobile — whether a Google Maps key is available to this build.
 ///
-/// Asked once from MainActivity (only a yes/no crosses the channel, never
-/// the key itself). A map view without a key is rejected by the Maps SDK,
-/// so no caller ever creates one when this resolves to false. Shared by
-/// the Rider Route map and the Customer live-tracking map — one gating
-/// check, not two copies of the same MethodChannel call.
+/// On mobile: asked once from MainActivity (only a yes/no crosses the
+/// channel, never the key itself) -- a map view without a key is rejected
+/// by the native Maps SDK, so no caller ever creates one when this resolves
+/// to false. On web: there is no native MethodChannel at all (calling one
+/// always throws), so this checks `window.GOOGLE_MAPS_API_KEY` instead --
+/// see web/maps_config.example.js. Shared by the Rider Route map and the
+/// Customer live-tracking map — one gating check, not two copies of it.
 ///
-/// Cached for the lifetime of the app: the manifest's key never changes
-/// after the APK is built, so there's no reason to ask native code twice.
+/// Cached for the lifetime of the app: the key source never changes after
+/// the app starts, so there's no reason to ask twice -- except a failed
+/// mobile channel call, which resets the cache so a transient platform
+/// hiccup can't permanently disable the map for the rest of the session.
 Future<bool>? _hasMapsKey;
 
-Future<bool> isMapsApiKeyConfigured() => _hasMapsKey ??= const MethodChannel('ecoxchange/config')
-    .invokeMethod<bool>('hasMapsApiKey')
-    .then((v) => v ?? false)
-    .catchError((Object _) {
-      // A thrown/failed channel call is never "no key configured" -- it's a
-      // transient platform hiccup. Caching that as a permanent false would
-      // wrongly disable the map for the rest of this app session even once
-      // the channel is healthy again, so let the next caller re-probe.
-      _hasMapsKey = null;
-      return false;
-    });
+Future<bool> isMapsApiKeyConfigured() => _hasMapsKey ??= _check();
+
+Future<bool> _check() async {
+  if (kIsWeb) return platform.hasWebMapsKey();
+
+  try {
+    final has = await const MethodChannel('ecoxchange/config').invokeMethod<bool>('hasMapsApiKey');
+    return has ?? false;
+  } catch (_) {
+    _hasMapsKey = null;
+    return false;
+  }
+}

@@ -114,7 +114,7 @@ class _HomeContent extends StatelessWidget {
                       children: [
                         Text('${_greeting()} 👋', style: const TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 2),
-                        Text(userName, style: AppTheme.displayFont(fontSize: 25, fontWeight: FontWeight.w900, color: Colors.white)),
+                        Text(userName, style: AppTheme.headerIdentityName()),
                       ],
                     ),
                   ),
@@ -277,7 +277,11 @@ class _ImpactCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text.rich(
             TextSpan(
-              style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
+              // Body copy, not a heading -- Sora/displayFont is reserved for
+              // large display numbers/headings (see AppTheme's docblock);
+              // this one-line sentence was borrowing that display weight
+              // and reading oversized for its role (Typography Polish pass).
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, height: 1.3),
               children: weightKg > 0
                   ? [
                       const TextSpan(text: 'You recycled '),

@@ -1,11 +1,13 @@
 import '../../../../core/models/geo_point.dart';
+import '../../../customer/data/models/pickup_detail.dart' show PickupTrackingRoute;
 
 /// EcoXchange Mobile — `GET /api/v1/rider/pickups/{pickup}`, shaped like
 /// `App\Http\Resources\Rider\RiderPickupDetailResource`. Read-only in
 /// Phase R1: the fields a rider needs to find, contact and collect a
-/// pickup. No reward/price exists in the rider response, so none is shown;
-/// raw coordinates are kept for a later navigation phase and no distance
-/// or ETA is computed.
+/// pickup. No reward/price exists in the rider response, so none is shown.
+/// [trackingRoute] reuses the exact same server-computed route concept the
+/// customer tracking screen already uses (see [PickupTrackingRoute]) —
+/// never a second route format.
 class RiderPickupDetail {
   const RiderPickupDetail({
     required this.id,
@@ -24,6 +26,7 @@ class RiderPickupDetail {
     required this.imageUrl,
     required this.assignment,
     this.locations = const RiderRouteLocations(),
+    this.trackingRoute,
   });
 
   factory RiderPickupDetail.fromJson(Map<String, dynamic> json) {
@@ -52,6 +55,8 @@ class RiderPickupDetail {
       locations: json['locations'] is Map<String, dynamic>
           ? RiderRouteLocations.fromJson(json['locations'] as Map<String, dynamic>)
           : const RiderRouteLocations(),
+      trackingRoute:
+          json['tracking_route'] != null ? PickupTrackingRoute.fromJson(json['tracking_route'] as Map<String, dynamic>) : null,
     );
   }
 
@@ -74,6 +79,14 @@ class RiderPickupDetail {
   /// Raw stored coordinates (rider / pickup / recycling centre); any may be
   /// null. No distance or ETA is computed anywhere in the backend.
   final RiderRouteLocations locations;
+
+  /// Road route from the rider's current position to [address], computed
+  /// server-side (same PickupTrackingService/GoogleRoutesService the
+  /// customer tracking screen uses). Null whenever there's no rider
+  /// position to route from, no pickup address coordinate to route to, or
+  /// the Routes API call itself failed/is unconfigured — never fabricated
+  /// client-side.
+  final PickupTrackingRoute? trackingRoute;
 
   /// The rider-facing status: this rider's assignment state when present.
   String get displayStatus => assignment?.status ?? status;

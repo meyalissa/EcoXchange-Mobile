@@ -126,7 +126,7 @@ class _HomeContent extends StatelessWidget {
                   children: [
                     Text('${_greeting()} 👋', style: const TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
-                    Text(userName, style: AppTheme.displayFont(fontSize: 25, fontWeight: FontWeight.w900, color: Colors.white)),
+                    Text(userName, style: AppTheme.headerIdentityName()),
                     if (riderStatus != null) ...[
                       const SizedBox(height: 4),
                       Row(
@@ -316,7 +316,10 @@ class _JobCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Text(pickup.customerName ?? '—', style: AppTheme.displayFont(fontSize: 21, fontWeight: FontWeight.w900, color: Colors.white)),
+            // Same size as the identical "customer name as a card title"
+            // role elsewhere (rider_task_card.dart, rider_route_screen.dart)
+            // -- this one was the odd one out at 21px (Typography Polish pass).
+            Text(pickup.customerName ?? '—', style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
             if (pickup.addressSummary != null) _CardLine(icon: Icons.location_on_outlined, text: pickup.addressSummary!),
             if (pickup.pickupDate != null)
               _CardLine(icon: Icons.schedule, text: [pickup.pickupDate, pickup.pickupTime].whereType<String>().join(' · ')),

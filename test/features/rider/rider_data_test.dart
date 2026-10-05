@@ -125,6 +125,17 @@ void main() {
       expect(p.centre?.phone, '+60355551234');
       expect(p.items.map((i) => (i.itemName, i.quantity)), [('Glass Bottle', 2), ('Plastic Bottle', 2)]);
       expect(p.assignment?.acceptedAt, isNotNull);
+      expect(p.trackingRoute, isNull, reason: 'the fixture default has no tracking_route');
+    });
+
+    test('pickup detail: parses tracking_route -- same shape as the customer endpoint', () {
+      final p = RiderPickupDetail.fromJson(riderPickupDetailJson(
+        trackingRoute: {'distance_meters': 1800, 'duration_seconds': 240, 'polyline': 'abc123'},
+      ));
+
+      expect(p.trackingRoute?.distanceMeters, 1800);
+      expect(p.trackingRoute?.durationSeconds, 240);
+      expect(p.trackingRoute?.polyline, 'abc123');
     });
 
     test('profile: fields and server totals; freelance rider has no centre', () {

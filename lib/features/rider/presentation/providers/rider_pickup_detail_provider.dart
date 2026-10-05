@@ -66,6 +66,23 @@ class RiderPickupDetailProvider extends ChangeNotifier {
     }
   }
 
+  /// A SILENT background refresh (the Route screen's live-location poll,
+  /// mirroring the customer tracking screen's own poll) — never touches
+  /// [isLoading]/[loadError], and keeps the last known pickup on a
+  /// transient failure rather than clearing the screen; the next tick
+  /// simply tries again. Skipped while an action is in flight so a poll
+  /// can never overwrite the state an in-progress action is about to
+  /// replace.
+  Future<void> refreshSilently() async {
+    if (_submitting != null) return;
+    try {
+      _pickup = await _repository.getPickupDetail(pickupId);
+      notifyListeners();
+    } on ApiException {
+      // Keep showing the last known state; try again next tick.
+    }
+  }
+
   Future<bool> accept() => _perform(RiderPickupAction.accept, () => _repository.acceptPickup(pickupId));
 
   Future<bool> start() => _perform(RiderPickupAction.start, () => _repository.startPickup(pickupId));

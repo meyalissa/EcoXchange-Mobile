@@ -21,6 +21,19 @@ class AppTheme {
     return GoogleFonts.sora(fontSize: fontSize, fontWeight: fontWeight, color: color);
   }
 
+  /// Shared "header identity name" style — the signed-in user's OWN name,
+  /// shown next to their avatar in a gradient hero header (Customer/Rider
+  /// Home greeting, Customer/Rider Profile). Deliberately smaller/lighter
+  /// than a true page title (e.g. "Rewards Hub"/"Pickup Hub", which use
+  /// [displayFont] directly at 26/w900) — a real name is longer and more
+  /// variable than a short page title, so giving it the same display-grade
+  /// weight let it visually dominate the header instead of reading as a
+  /// title (Typography Polish pass). Still Sora/bold so it stays prominent;
+  /// just a tier below the actual page title.
+  static TextStyle headerIdentityName({Color color = Colors.white}) {
+    return GoogleFonts.sora(fontSize: 22, fontWeight: FontWeight.w800, color: color);
+  }
+
   static ThemeData get light {
     final textTheme = GoogleFonts.plusJakartaSansTextTheme();
 
