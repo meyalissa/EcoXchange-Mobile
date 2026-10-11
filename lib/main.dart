@@ -5,6 +5,7 @@ import 'app/app.dart';
 import 'core/api/api_client.dart';
 import 'core/storage/token_storage.dart';
 import 'features/auth/data/auth_repository.dart';
+import 'features/auth/data/profile_repository.dart';
 import 'features/auth/presentation/auth_provider.dart';
 import 'features/customer/data/repositories/customer_address_repository.dart';
 import 'features/customer/data/repositories/customer_catalogue_repository.dart';
@@ -48,6 +49,7 @@ void main() {
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: authProvider),
+        Provider<ProfileRepository>.value(value: ProfileRepository(apiClient)),
         Provider<CustomerDashboardRepository>.value(value: CustomerDashboardRepository(apiClient)),
         Provider<CustomerPickupRepository>.value(value: CustomerPickupRepository(apiClient)),
         Provider<CustomerCatalogueRepository>.value(value: CustomerCatalogueRepository(apiClient)),

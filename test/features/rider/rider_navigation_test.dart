@@ -45,6 +45,7 @@ class _AuthRepo extends AuthRepository {
         email: 'rider@example.com',
         role: 'rider',
         phoneNumber: null,
+        profilePhotoUrl: null,
         riderProfile: RiderProfileSummary(riderType: 'dedicated', vehicleType: 'motorcycle', riderStatus: 'available'),
       );
   @override

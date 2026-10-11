@@ -38,7 +38,7 @@ class _AuthRepo extends AuthRepository {
   _AuthRepo(TokenStorage s) : super(apiClient: ApiClient(tokenStorage: s), tokenStorage: s);
   @override
   Future<UserModel> login({required String email, required String password}) async =>
-      const UserModel(id: 1, name: 'Test Customer', email: 'customer@example.com', role: 'customer', phoneNumber: '+60120000000');
+      const UserModel(id: 1, name: 'Test Customer', email: 'customer@example.com', role: 'customer', phoneNumber: '+60120000000', profilePhotoUrl: null);
   @override
   Future<void> logout() async {}
 }

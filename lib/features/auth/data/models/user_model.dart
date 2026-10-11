@@ -15,6 +15,7 @@ class UserModel {
     required this.email,
     required this.role,
     required this.phoneNumber,
+    required this.profilePhotoUrl,
     this.riderProfile,
   });
 
@@ -25,6 +26,7 @@ class UserModel {
       email: json['email'] as String,
       role: json['role'] as String,
       phoneNumber: json['phone_number'] as String?,
+      profilePhotoUrl: json['profile_photo_url'] as String?,
       riderProfile: json['rider_profile'] != null
           ? RiderProfileSummary.fromJson(json['rider_profile'] as Map<String, dynamic>)
           : null,
@@ -36,6 +38,12 @@ class UserModel {
   final String email;
   final String role;
   final String? phoneNumber;
+
+  /// A full, directly-usable URL — straight from the server's own
+  /// `UserResource::profile_photo_url` (never built client-side from a raw
+  /// disk path). Null when the user has no photo.
+  final String? profilePhotoUrl;
+
   final RiderProfileSummary? riderProfile;
 
   bool get isCustomer => role == 'customer';

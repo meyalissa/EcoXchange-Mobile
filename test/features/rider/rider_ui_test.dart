@@ -64,6 +64,7 @@ UserModel _user(String role) => UserModel(
       email: '$role@example.com',
       role: role,
       phoneNumber: null,
+      profilePhotoUrl: null,
       riderProfile: role == 'rider'
           ? const RiderProfileSummary(riderType: 'dedicated', vehicleType: 'motorcycle', riderStatus: 'available')
           : null,

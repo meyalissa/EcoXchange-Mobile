@@ -4,11 +4,14 @@ import 'package:provider/provider.dart';
 import '../../../../core/api/api_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/design_tokens.dart';
+import '../../../../core/widgets/app_network_image.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/eco_app_bar.dart';
+import '../../../../core/widgets/eco_button.dart';
 import '../../../../core/widgets/gradient_header.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/auth_provider.dart';
+import '../../../auth/presentation/screens/edit_personal_info_screen.dart';
 import '../../data/models/address.dart';
 import '../../data/repositories/customer_address_repository.dart';
 import '../providers/dashboard_provider.dart';
@@ -21,8 +24,10 @@ import 'recycling_centre_list_screen.dart';
 /// EcoXchange Mobile — Customer Profile (05_customer_profile design).
 /// Identity from the logged-in user (`/auth/me`), statistics from
 /// `GET /customer/dashboard`, saved addresses from the real address API.
-/// Not shown because the backend has no support for them: points, a
-/// membership tier, bank/payout details, profile editing and account
+/// Personal Information (name/email/phone/photo) is editable via
+/// EditPersonalInfoScreen, shared with the Rider profile — see that
+/// screen's docblock. Not shown because the backend has no support for
+/// them: points, a membership tier, bank/payout details, and account
 /// deletion (no buttons that would only pretend to work).
 class CustomerProfileScreen extends StatefulWidget {
   const CustomerProfileScreen({super.key});
@@ -76,11 +81,40 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               _InfoLine(label: 'Name', value: user.name),
               _InfoLine(label: 'Email', value: user.email),
               _InfoLine(label: 'Phone', value: user.phoneNumber ?? '—'),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: EcoButton(
+                  key: const Key('profile-edit-personal-info'),
+                  label: 'Edit Profile',
+                  pill: true,
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _editPersonalInfo(user);
+                  },
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _editPersonalInfo(UserModel user) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => EditPersonalInfoScreen(
+          initialName: user.name,
+          initialEmail: user.email,
+          initialPhoneNumber: user.phoneNumber,
+          initialPhotoUrl: user.profilePhotoUrl,
+        ),
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated.'), backgroundColor: AppColors.green600));
+    }
   }
 
   @override
@@ -99,7 +133,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             children: [
               Row(
                 children: [
-                  _ProfileAvatar(initials: user.name.isNotEmpty ? user.name[0].toUpperCase() : '?'),
+                  _ProfileAvatar(initials: user.name.isNotEmpty ? user.name[0].toUpperCase() : '?', photoUrl: user.profilePhotoUrl),
                   const SizedBox(width: 18),
                   Expanded(
                     child: Column(
@@ -164,22 +198,33 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
 }
 
 class _ProfileAvatar extends StatelessWidget {
-  const _ProfileAvatar({required this.initials});
+  const _ProfileAvatar({required this.initials, this.photoUrl});
 
   final String initials;
+  final String? photoUrl;
 
   @override
   Widget build(BuildContext context) {
+    final url = photoUrl;
     return Container(
       width: 92,
       height: 92,
+      clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.white.withValues(alpha: 0.15),
         border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 3),
       ),
-      child: Text(initials, style: AppTheme.displayFont(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white)),
+      child: url != null
+          ? AppNetworkImage(
+              url: url,
+              width: 92,
+              height: 92,
+              fit: BoxFit.cover,
+              errorBuilder: (context, _, _) => Text(initials, style: AppTheme.displayFont(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white)),
+            )
+          : Text(initials, style: AppTheme.displayFont(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white)),
     );
   }
 }

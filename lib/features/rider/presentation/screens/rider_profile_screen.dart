@@ -3,19 +3,27 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/design_tokens.dart';
+import '../../../../core/widgets/app_network_image.dart';
 import '../../../../core/widgets/async_state_view.dart';
+import '../../../../core/widgets/eco_button.dart';
 import '../../../../core/widgets/gradient_header.dart';
 import '../../../auth/presentation/auth_provider.dart';
+import '../../../auth/presentation/screens/edit_personal_info_screen.dart';
 import '../../data/models/rider_profile.dart';
 import '../providers/rider_profile_provider.dart';
 import 'rider_dashboard_screen.dart' show initialsOf;
 
-/// EcoXchange Mobile — Rider Profile (05_rider_profile design), read-only:
-/// `GET /rider/profile`. Identity, vehicle, assignment and the server's own
-/// lifetime/this-month totals, plus Log Out. Identity-document numbers are
-/// never shown (see RiderProfile). Not shown because the backend has no
-/// support for them: ratings, rankings, bank/payout details, profile
-/// editing and account deletion.
+/// EcoXchange Mobile — Rider Profile (05_rider_profile design):
+/// `GET /rider/profile`. Identity, the server's own lifetime/this-month
+/// totals, plus Log Out. Personal Information (name/email/phone/photo) is
+/// editable via EditPersonalInfoScreen (shared with the Customer profile —
+/// see that screen's docblock); "Vehicle & Assignment" stays strictly
+/// read-only here (rider_type, vehicle, plate, recycling-centre assignment,
+/// coverage zone, working radius, rider status are the Rider/Staff
+/// management domain's own, separate concern — this screen never edits any
+/// of them). Identity-document numbers are never shown (see RiderProfile).
+/// Not shown because the backend has no support for them: ratings,
+/// rankings, bank/payout details, and account deletion.
 class RiderProfileScreen extends StatefulWidget {
   const RiderProfileScreen({super.key});
 
@@ -76,6 +84,64 @@ class _ProfileContent extends StatelessWidget {
     );
   }
 
+  /// Personal Information only — a deliberately SEPARATE sheet from
+  /// [_showInfo]'s generic one (used for "Vehicle & Assignment" below),
+  /// since only this one ever gets an Edit action. Keeping them separate
+  /// means there is no shared code path an edit button could accidentally
+  /// end up attached to the read-only vehicle/assignment sheet through.
+  void _showPersonalInfo(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Personal Information', style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.n800)),
+              const SizedBox(height: 12),
+              _Field(label: 'Name', value: profile.name),
+              _Field(label: 'Email', value: profile.email),
+              _Field(label: 'Phone', value: profile.phoneNumber),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: EcoButton(
+                  key: const Key('rider-profile-edit-personal-info'),
+                  label: 'Edit Profile',
+                  pill: true,
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _editPersonalInfo(context);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editPersonalInfo(BuildContext context) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => EditPersonalInfoScreen(
+          initialName: profile.name,
+          initialEmail: profile.email,
+          initialPhoneNumber: profile.phoneNumber,
+          initialPhotoUrl: profile.profilePhotoUrl,
+        ),
+      ),
+    );
+    if (saved == true && context.mounted) {
+      context.read<RiderProfileProvider>().refresh();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated.'), backgroundColor: AppColors.green600));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final vehicle = [profile.vehicleType, profile.vehiclePlateNo].whereType<String>().map(_humanise).join(' · ');
@@ -98,13 +164,23 @@ class _ProfileContent extends StatelessWidget {
                       Container(
                         width: 92,
                         height: 92,
+                        clipBehavior: Clip.antiAlias,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: Colors.white.withValues(alpha: 0.15),
                           border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 3),
                         ),
-                        child: Text(initialsOf(profile.name), style: AppTheme.displayFont(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.white)),
+                        child: profile.profilePhotoUrl != null
+                            ? AppNetworkImage(
+                                url: profile.profilePhotoUrl!,
+                                width: 92,
+                                height: 92,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, _, _) =>
+                                    Text(initialsOf(profile.name), style: AppTheme.displayFont(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.white)),
+                              )
+                            : Text(initialsOf(profile.name), style: AppTheme.displayFont(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.white)),
                       ),
                       if (profile.riderStatus != null)
                         Positioned(
@@ -175,11 +251,7 @@ class _ProfileContent extends StatelessWidget {
               icon: Icons.person_outline,
               title: 'Personal Information',
               subtitle: 'Name, email, phone',
-              onTap: () => _showInfo(context, 'Personal Information', [
-                ('Name', profile.name),
-                ('Email', profile.email),
-                ('Phone', profile.phoneNumber),
-              ]),
+              onTap: () => _showPersonalInfo(context),
             ),
             _MenuRow(
               key: const Key('rider-profile-vehicle-info'),

@@ -40,7 +40,7 @@ class _NoOpAuthRepository extends AuthRepository {
   // the same way logout() above does.
   @override
   Future<UserModel> login({required String email, required String password}) async {
-    return const UserModel(id: 1, name: 'Test Customer', email: 'test@example.com', role: 'customer', phoneNumber: null);
+    return const UserModel(id: 1, name: 'Test Customer', email: 'test@example.com', role: 'customer', phoneNumber: null, profilePhotoUrl: null);
   }
 }
 

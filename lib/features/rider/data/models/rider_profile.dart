@@ -11,6 +11,7 @@ class RiderProfile {
     required this.name,
     required this.email,
     required this.phoneNumber,
+    required this.profilePhotoUrl,
     required this.riderType,
     required this.vehicleType,
     required this.vehiclePlateNo,
@@ -31,6 +32,7 @@ class RiderProfile {
       name: json['name'] as String,
       email: json['email'] as String,
       phoneNumber: json['phone_number'] as String?,
+      profilePhotoUrl: json['profile_photo_url'] as String?,
       riderType: json['rider_type'] as String?,
       vehicleType: json['vehicle_type'] as String?,
       vehiclePlateNo: json['vehicle_plate_no'] as String?,
@@ -48,6 +50,12 @@ class RiderProfile {
   final String name;
   final String email;
   final String? phoneNumber;
+
+  /// A full, directly-usable URL — straight from the server's own
+  /// `RiderProfileResource::profile_photo_url`. Null when the rider has no
+  /// photo.
+  final String? profilePhotoUrl;
+
   final String? riderType;
   final String? vehicleType;
   final String? vehiclePlateNo;

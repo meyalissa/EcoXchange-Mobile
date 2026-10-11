@@ -118,4 +118,14 @@ class AuthProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
   }
+
+  /// Replaces the in-memory user with a fresh, real, server-returned one —
+  /// called after a successful Personal Information edit (name/email/
+  /// phone/photo) so every screen watching [user] (header, profile) reflects
+  /// the change immediately, without a second `/auth/me` round-trip. Never
+  /// called with anything but a genuine API response.
+  void applyUpdatedUser(UserModel updated) {
+    _user = updated;
+    notifyListeners();
+  }
 }
