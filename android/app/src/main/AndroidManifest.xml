@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- EcoXchange talks to the Laravel API in every build variant (Dio/
+         ApiClient), not just during development — this was previously
+         declared only in the debug/profile manifest overrides (added
+         there by the Flutter template for hot-reload/DevTools, not for
+         the app's own HTTP calls), which meant a release build had no
+         network access at all. Declared here so every variant gets it. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Rider's own foreground GPS (customer live-tracking, Phase 1).
          Requested at runtime by the geolocator plugin; no background
          location permission is declared, since this app never tracks in
@@ -6,7 +13,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
-        android:label="ecoxchange_mobile"
+        android:label="Ecoxchange"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

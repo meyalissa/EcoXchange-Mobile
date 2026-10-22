@@ -5,6 +5,8 @@
 // own `debugUploadPhotoAt` seam drives the upload logic directly, exactly
 // mirroring AiScanProvider's established convention).
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ecoxchange_mobile/core/api/api_client.dart';
@@ -36,7 +38,8 @@ class _FakeProfileRepository extends ProfileRepository {
   String? lastName;
   String? lastEmail;
   String? lastPhoneNumber;
-  String? lastPhotoPath;
+  Uint8List? lastPhotoBytes;
+  String? lastPhotoFilename;
 
   @override
   Future<UserModel> updateProfile({required String name, required String email, String? phoneNumber}) async {
@@ -49,9 +52,10 @@ class _FakeProfileRepository extends ProfileRepository {
   }
 
   @override
-  Future<UserModel> updatePhoto(String filePath) async {
+  Future<UserModel> updatePhoto(Uint8List bytes, String filename) async {
     photoCalls++;
-    lastPhotoPath = filePath;
+    lastPhotoBytes = bytes;
+    lastPhotoFilename = filename;
     if (photoError != null) throw photoError!;
     return photoResult!;
   }
@@ -200,12 +204,14 @@ void main() {
       final auth = _authProvider();
       final provider = EditPersonalInfoProvider(repo, auth, initialName: 'A', initialEmail: 'a@example.com', initialPhoneNumber: null, initialPhotoUrl: null);
 
-      await provider.debugUploadPhotoAt('/tmp/fake.jpg');
+      final fakeBytes = Uint8List.fromList([1, 2, 3]);
+      await provider.debugUploadPhotoAt(fakeBytes, 'fake.jpg');
 
       expect(repo.photoCalls, 1);
-      expect(repo.lastPhotoPath, '/tmp/fake.jpg');
+      expect(repo.lastPhotoBytes, fakeBytes);
+      expect(repo.lastPhotoFilename, 'fake.jpg');
       expect(provider.photoUrl, 'https://ecoxchange.test/storage/avatars/new.jpg');
-      expect(provider.pickedImagePath, isNull); // cleared after upload completes
+      expect(provider.pickedImageBytes, isNull); // cleared after upload completes
       expect(provider.isUploadingPhoto, isFalse);
       expect(auth.user, same(updated));
     });
@@ -222,20 +228,21 @@ void main() {
         initialPhotoUrl: 'https://ecoxchange.test/storage/avatars/old.jpg',
       );
 
-      await provider.debugUploadPhotoAt('/tmp/bad.jpg');
+      await provider.debugUploadPhotoAt(Uint8List.fromList([1, 2, 3]), 'bad.jpg');
 
       expect(provider.photoError, same(error));
       expect(provider.photoUrl, 'https://ecoxchange.test/storage/avatars/old.jpg'); // unchanged
       expect(provider.isUploadingPhoto, isFalse);
     });
 
-    test('while uploading, isUploadingPhoto is true and a local preview path is set', () async {
+    test('while uploading, isUploadingPhoto is true and a local preview is set', () async {
       final repo = _FakeProfileRepository(photoResult: _user());
       final provider = EditPersonalInfoProvider(repo, _authProvider(), initialName: 'A', initialEmail: 'a@example.com', initialPhoneNumber: null, initialPhotoUrl: null);
 
-      final future = provider.debugUploadPhotoAt('/tmp/fake.jpg');
+      final fakeBytes = Uint8List.fromList([1, 2, 3]);
+      final future = provider.debugUploadPhotoAt(fakeBytes, 'fake.jpg');
       expect(provider.isUploadingPhoto, isTrue);
-      expect(provider.pickedImagePath, '/tmp/fake.jpg');
+      expect(provider.pickedImageBytes, fakeBytes);
 
       await future;
       expect(provider.isUploadingPhoto, isFalse);

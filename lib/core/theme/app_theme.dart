@@ -30,8 +30,8 @@ class AppTheme {
   /// weight let it visually dominate the header instead of reading as a
   /// title (Typography Polish pass). Still Sora/bold so it stays prominent;
   /// just a tier below the actual page title.
-  static TextStyle headerIdentityName({Color color = Colors.white}) {
-    return GoogleFonts.sora(fontSize: 22, fontWeight: FontWeight.w800, color: color);
+  static TextStyle headerIdentityName({Color color = Colors.white, double fontSize = 22}) {
+    return GoogleFonts.sora(fontSize: fontSize, fontWeight: FontWeight.w800, color: color);
   }
 
   static ThemeData get light {

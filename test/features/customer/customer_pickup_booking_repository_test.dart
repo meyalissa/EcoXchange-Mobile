@@ -107,14 +107,15 @@ void main() {
         quantities: {5: 2},
         addressId: 42,
         centerId: 7,
+        bookingMode: 'scheduled',
         pickupDate: '2026-12-01',
-        pickupTime: '08:00-10:00',
+        pickupTime: '08:00 AM',
         notes: 'Leave at gate',
         scanLogId: 3,
       );
 
       expect(spy.lastPath, '/customer/pickup');
-      expect(spy.lastData!.keys, containsAll(['items', 'address_id', 'center_id', 'pickup_date', 'pickup_time', 'notes', 'scan_log_id']));
+      expect(spy.lastData!.keys, containsAll(['items', 'address_id', 'center_id', 'booking_mode', 'pickup_date', 'pickup_time', 'notes', 'scan_log_id']));
       expect(spy.lastData!.containsKey('estimated_reward'), isFalse);
       expect(spy.lastData!.containsKey('total_weight_kg'), isFalse);
       expect(spy.lastData!.containsKey('feasibility'), isFalse);
@@ -125,9 +126,57 @@ void main() {
       final spy = _SpyApiClient()..responseData = {'pickup': _minimalPickupJson()};
       final repo = CustomerPickupBookingRepository(spy);
 
-      await repo.submit(quantities: {5: 1}, addressId: 42, centerId: 7, pickupDate: '2026-12-01', pickupTime: '08:00-10:00', notes: '   ');
+      await repo.submit(quantities: {5: 1}, addressId: 42, centerId: 7, bookingMode: 'scheduled', pickupDate: '2026-12-01', pickupTime: '08:00 AM', notes: '   ');
 
       expect(spy.lastData!.containsKey('notes'), isFalse);
+    });
+
+    test('submit() with bookingMode "now" omits pickup_date/pickup_time entirely — the server resolves its own clock', () async {
+      final spy = _SpyApiClient()..responseData = {'pickup': _minimalPickupJson()};
+      final repo = CustomerPickupBookingRepository(spy);
+
+      await repo.submit(quantities: {5: 1}, addressId: 42, centerId: 7, bookingMode: 'now');
+
+      expect(spy.lastData!['booking_mode'], 'now');
+      expect(spy.lastData!.containsKey('pickup_date'), isFalse);
+      expect(spy.lastData!.containsKey('pickup_time'), isFalse);
+    });
+
+    test('submit() sends scan_log_ids (plural) for a multi-image booking, alongside the legacy singular id', () async {
+      final spy = _SpyApiClient()..responseData = {'pickup': _minimalPickupJson()};
+      final repo = CustomerPickupBookingRepository(spy);
+
+      await repo.submit(
+        quantities: {5: 1},
+        addressId: 42,
+        centerId: 7,
+        bookingMode: 'scheduled',
+        pickupDate: '2026-12-01',
+        pickupTime: '08:00 AM',
+        scanLogId: 3,
+        scanLogIds: [3, 4, 5],
+      );
+
+      expect(spy.lastData!['scan_log_id'], 3);
+      expect(spy.lastData!['scan_log_ids'], [3, 4, 5]);
+    });
+
+    test('submit() omits scan_log_ids entirely when the list is null or empty', () async {
+      final spy = _SpyApiClient()..responseData = {'pickup': _minimalPickupJson()};
+      final repo = CustomerPickupBookingRepository(spy);
+
+      await repo.submit(quantities: {5: 1}, addressId: 42, centerId: 7, bookingMode: 'scheduled', pickupDate: '2026-12-01', pickupTime: '08:00 AM', scanLogIds: []);
+
+      expect(spy.lastData!.containsKey('scan_log_ids'), isFalse);
+    });
+
+    test('review() sends scan_log_ids (plural) for a multi-image session', () async {
+      final spy = _SpyApiClient()..responseData = _minimalReviewJson();
+      final repo = CustomerPickupBookingRepository(spy);
+
+      await repo.review(quantities: {5: 1}, addressId: 42, centerId: 7, scanLogIds: [3, 4]);
+
+      expect(spy.lastData!['scan_log_ids'], [3, 4]);
     });
   });
 

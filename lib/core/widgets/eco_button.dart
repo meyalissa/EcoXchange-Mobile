@@ -17,6 +17,7 @@ class EcoButton extends StatelessWidget {
     this.pill = false,
     this.loading = false,
     this.icon,
+    this.trailingIcon,
   });
 
   final String label;
@@ -26,6 +27,11 @@ class EcoButton extends StatelessWidget {
   final bool pill;
   final bool loading;
   final IconData? icon;
+
+  /// Optional icon shown AFTER the label (e.g. a "Log In →" affordance) —
+  /// additive only, every existing call site leaves this null and is
+  /// unaffected.
+  final IconData? trailingIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +47,7 @@ class EcoButton extends StatelessWidget {
             children: [
               if (icon != null) ...[Icon(icon, size: 18), const SizedBox(width: 7)],
               Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+              if (trailingIcon != null) ...[const SizedBox(width: 7), Icon(trailingIcon, size: 18)],
             ],
           );
 

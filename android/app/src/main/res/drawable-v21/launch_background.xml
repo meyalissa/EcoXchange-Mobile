@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Modify this file to customize your launch splash screen -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
+    <!-- Deliberately the same fixed light background as drawable/
+         launch_background.xml (NOT ?android:colorBackground, which would
+         go dark under the system's dark-mode theme), since this app has
+         no dark theme of its own (AppTheme only exposes AppTheme.light);
+         a dark native splash would otherwise flash briefly before the
+         light-only Flutter UI replaces it. -->
+    <item android:drawable="@color/launch_background" />
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+    <item>
         <bitmap
             android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+            android:src="@drawable/launch_image" />
+    </item>
 </layer-list>

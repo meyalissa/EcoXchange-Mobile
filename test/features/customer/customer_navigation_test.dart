@@ -175,6 +175,53 @@ void main() {
     expect(find.byKey(const Key('request-new-pickup')), findsOneWidget);
   });
 
+  testWidgets('Part A: "Request New Pickup" opens the scan-first flow, not manual item selection', (tester) async {
+    await pumpShell(tester);
+    await tester.tap(find.text('Pickup'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('request-new-pickup')));
+    await tester.pumpAndSettle();
+
+    // Scan-first, the same flow the AI Scan tab uses — and, per the "fix
+    // AI Scan / Request Pickup navigation" task, it lands straight on
+    // Scan & Classify with no photo chosen yet, not on an intermediate
+    // empty "Scan Multiple Items" screen the user would have to tap
+    // through first (MultiImageScanScreen still owns the session
+    // underneath — see that screen's auto-open in initState()).
+    expect(find.text('Scan & Classify'), findsOneWidget);
+    expect(find.text('Select Items'), findsNothing, reason: 'manual item selection is no longer the first screen');
+  });
+
+  testWidgets('Part A: "Request New Pickup" from the My Pickups list also opens the scan-first flow', (tester) async {
+    await pumpShell(tester);
+    await tester.tap(find.text('Pickup'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View All'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('request-new-pickup')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scan & Classify'), findsOneWidget);
+  });
+
+  testWidgets('Part 1: "AI Scan" tab → "Scan Item" opens Scan & Classify directly, with no photo selected yet', (tester) async {
+    await pumpShell(tester);
+    await tester.tap(find.text('AI Scan'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ai-open-camera')));
+    await tester.pumpAndSettle();
+
+    // Lands straight on Scan & Classify's empty picker (no auto-restored
+    // image, no intermediate empty "Scan Multiple Items" screen to tap
+    // through first).
+    expect(find.text('Scan & Classify'), findsOneWidget);
+    expect(find.text('Scan a Recyclable Item'), findsOneWidget);
+    expect(find.text('Scan Multiple Items'), findsNothing);
+  });
+
   testWidgets('AI Scan → Manual Calculator sends the entered weight and shows the server estimate', (tester) async {
     final booking = await pumpShell(tester);
     await tester.tap(find.text('AI Scan'));

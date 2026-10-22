@@ -54,6 +54,30 @@ class _EmptyDashboardRepository extends CustomerDashboardRepository {
       });
 }
 
+/// Returns whatever `monthlyWeightKg`/`monthlyCompletedPickups` are
+/// currently set, letting a test simulate "a pickup was completed
+/// elsewhere" between two calls — exactly the real-world scenario (a
+/// rider completes it on a different device) the return-to-Home refresh
+/// fix exists for.
+class _MutableDashboardRepository extends CustomerDashboardRepository {
+  _MutableDashboardRepository() : super(ApiClient());
+
+  double monthlyWeightKg = 0;
+  int monthlyCompletedPickups = 0;
+  int callCount = 0;
+
+  @override
+  Future<DashboardData> getDashboard() async {
+    callCount++;
+    return DashboardData.fromJson({
+      'total_pickups': 0, 'completed_pickups': 0, 'pending_pickups': 0,
+      'total_weight_kg': 0.0, 'total_rewards_earned': 0.0,
+      'monthly_weight_kg': monthlyWeightKg, 'monthly_completed_pickups': monthlyCompletedPickups,
+      'active_pickup': null, 'recent_pickups': [],
+    });
+  }
+}
+
 class _EmptyPickupRepository extends CustomerPickupRepository {
   _EmptyPickupRepository() : super(ApiClient());
   @override
@@ -154,10 +178,59 @@ void main() {
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('profile-logout')), 200, scrollable: find.byType(Scrollable).last);
     expect(find.byKey(const Key('profile-logout')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('profile-logout')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('profile-logout')));
     await tester.pumpAndSettle();
 
     expect(authProvider.status, AuthStatus.unauthenticated);
     expect(authProvider.user, isNull);
+  });
+
+  testWidgets('returning to Home after leaving it refreshes the monthly impact figures', (tester) async {
+    final tokenStorage = TokenStorage();
+    final authRepository = _NoOpAuthRepository(apiClient: ApiClient(tokenStorage: tokenStorage), tokenStorage: tokenStorage);
+    final authProvider = AuthProvider(authRepository: authRepository);
+    await authProvider.login(email: 'test@example.com', password: 'password');
+
+    final dashboardRepo = _MutableDashboardRepository();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: authProvider),
+          Provider<CustomerDashboardRepository>.value(value: dashboardRepo),
+          Provider<CustomerPickupRepository>.value(value: _EmptyPickupRepository()),
+          Provider<CustomerCatalogueRepository>.value(value: _EmptyCatalogueRepository()),
+          Provider<CustomerRecyclingCentreRepository>.value(value: _EmptyCentreRepository()),
+          Provider<CustomerRewardRepository>.value(value: _EmptyRewardRepository()),
+        ],
+        child: const MaterialApp(home: CustomerHomeScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Starts at zero — matches "no completions yet" exactly like the real
+    // backend would report for an account with nothing completed.
+    expect(find.text('No completed pickups yet this month'), findsOneWidget);
+    expect(dashboardRepo.callCount, 1);
+
+    // Simulate a pickup being completed elsewhere (a rider's own device) —
+    // nothing in THIS app session changes it, only the next real fetch
+    // would see it.
+    dashboardRepo
+      ..monthlyWeightKg = 12.5
+      ..monthlyCompletedPickups = 3;
+
+    // Leave Home, then come back — IndexedStack keeps DashboardScreen's
+    // State alive the whole time, so without the fix this would still
+    // show the stale zero figures from the first load.
+    await tester.tap(find.text('Rewards'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Home'));
+    await tester.pumpAndSettle();
+
+    expect(dashboardRepo.callCount, 2);
+    expect(find.text('No completed pickups yet this month'), findsNothing);
+    expect(find.textContaining('12.5 kg'), findsOneWidget);
   });
 }

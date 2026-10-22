@@ -7,8 +7,8 @@
 // The HTTP boundary is faked; no detector runs here.
 
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ecoxchange_mobile/core/api/api_client.dart';
@@ -38,7 +38,7 @@ class _BookingRepo extends CustomerPickupBookingRepository {
   Map<int, int>? lastEstimateQuantities;
 
   @override
-  Future<ScanUploadResult> uploadImage(String filePath) async {
+  Future<ScanUploadResult> uploadImage(Uint8List bytes, String filename) async {
     uploadCalls++;
     return const ScanUploadResult(scanLogId: 77, imageUrl: _imageUrl);
   }
@@ -132,17 +132,7 @@ class _FakeApi extends ApiClient {
 ItemModel _item(int id, String name) => ItemModel.fromJson(itemJson(id: id, name: name));
 
 void main() {
-  late Directory tempDir;
-  late File tempImage;
-
-  setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('ai_scan_multi_test');
-    tempImage = File('${tempDir.path}/photo.png')..writeAsBytesSync([0, 1, 2, 3]);
-  });
-
-  tearDown(() {
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-  });
+  final testImageBytes = Uint8List.fromList([0, 1, 2, 3]);
 
   /// A provider that has run a real submitMultiObject() against [fixture].
   Future<AIScanProvider> detected(Map<String, dynamic> fixture, {PendingDetectionStore? store}) async {
@@ -150,7 +140,7 @@ void main() {
       _BookingRepo(),
       detectionRepository: _FakeDetectionRepo(json: fixture),
       pendingStore: store ?? InMemoryPendingDetectionStore(),
-    )..debugSetPickedImage(tempImage);
+    )..debugSetPickedImage(testImageBytes);
     await provider.submitMultiObject();
     return provider;
   }
@@ -193,35 +183,70 @@ void main() {
     });
   });
 
-  group('backward compatibility — single-object classify is unchanged', () {
-    test('submit() still classifies through /classify and never calls /detect', () async {
+  group('Part B — the unified submit(): detect first, classify-only fallback', () {
+    test('when detection finds objects, that IS the result — classify is never called', () async {
       final repo = _BookingRepo();
       final detection = _FakeDetectionRepo(json: multiObjectFixture());
       final provider = AIScanProvider(repo, detectionRepository: detection, pendingStore: InMemoryPendingDetectionStore())
-        ..debugSetPickedImage(tempImage);
+        ..debugSetPickedImage(testImageBytes);
 
       await provider.submit();
 
-      expect(repo.classifyCalls, 1);
-      expect(detection.analysed, isEmpty);
+      expect(detection.analysed, [77]);
+      expect(repo.classifyCalls, 0);
+      expect(provider.isMultiObjectResult, isTrue);
+      expect(provider.fallbackNote, isNull);
+    });
+
+    test('classification-only fallback: zero detections -> submit() classifies the whole photo instead', () async {
+      final repo = _BookingRepo();
+      final detection = _FakeDetectionRepo(json: multiObjectEmptyFixture());
+      final provider = AIScanProvider(repo, detectionRepository: detection, pendingStore: InMemoryPendingDetectionStore())
+        ..debugSetPickedImage(testImageBytes);
+
+      await provider.submit();
+
+      expect(detection.analysed, [77], reason: 'counting is tried first, on the one uploaded photo');
+      expect(repo.classifyCalls, 1, reason: 'then the same scan_log_id is classified -- no second upload');
       expect(provider.isMultiObjectResult, isFalse);
       expect(provider.result?.aiLabel, 'plastic_bottle', reason: 'the existing single-object getter still works');
-      expect(provider.scanResult?.lines.single.suggestedQuantity, 1);
       expect(provider.scanLogId, 55);
+      expect(provider.fallbackNote, isNotNull, reason: 'the fallback is explained, never silent');
+      expect(provider.fallbackNote, contains('classified the whole photo'));
 
       provider.confirmAiResult();
       expect(provider.confirmedItem?.id, 1, reason: 'single-object confirm flow unchanged');
     });
 
-    test('an injected single-object scanRepository is still what submit() uses', () async {
+    test('an injected classify-only scanRepository is still what the fallback uses', () async {
       final scanRepo = _FakeScanRepo(json: multiObjectFixture());
-      final provider = AIScanProvider(_BookingRepo(), scanRepository: scanRepo, pendingStore: InMemoryPendingDetectionStore())
-        ..debugSetPickedImage(tempImage);
+      final provider = AIScanProvider(
+        _BookingRepo(),
+        scanRepository: scanRepo,
+        detectionRepository: _FakeDetectionRepo(json: multiObjectEmptyFixture()),
+        pendingStore: InMemoryPendingDetectionStore(),
+      )..debugSetPickedImage(testImageBytes);
 
       await provider.submit();
 
       expect(scanRepo.calls, 1);
-      expect(provider.isMultiObjectResult, isTrue);
+      expect(provider.isMultiObjectResult, isTrue, reason: 'fromJson derives mode from the fixture shape, not the call site');
+    });
+
+    test('a detector that is unavailable (503) also falls back to classify, with an honest note', () async {
+      final repo = _BookingRepo();
+      final detection = _FakeDetectionRepo(
+        analyseThrows: const ServerException('Down.', statusCode: 503, code: 'AI_SERVICE_UNAVAILABLE'),
+      );
+      final provider = AIScanProvider(repo, detectionRepository: detection, pendingStore: InMemoryPendingDetectionStore())
+        ..debugSetPickedImage(testImageBytes);
+
+      await provider.submit();
+
+      expect(repo.classifyCalls, 1);
+      expect(provider.isMultiObjectResult, isFalse);
+      expect(provider.fallbackNote, AIScanProvider.aiUnavailableMessage);
+      expect(provider.error, isNull, reason: 'a successful fallback is not an error');
     });
   });
 
@@ -230,7 +255,7 @@ void main() {
       final repo = _BookingRepo();
       final detection = _FakeDetectionRepo(json: multiObjectFixture());
       final provider = AIScanProvider(repo, detectionRepository: detection, pendingStore: InMemoryPendingDetectionStore())
-        ..debugSetPickedImage(tempImage);
+        ..debugSetPickedImage(testImageBytes);
 
       await provider.submitMultiObject();
 
@@ -297,7 +322,7 @@ void main() {
       PendingDetection? atDetectTime;
       final detection = _FakeDetectionRepo(json: multiObjectFixture(), onAnalyse: () => store.read().then((p) => atDetectTime = p));
       final provider = AIScanProvider(_BookingRepo(), detectionRepository: detection, pendingStore: store)
-        ..debugSetPickedImage(tempImage);
+        ..debugSetPickedImage(testImageBytes);
 
       await provider.submitMultiObject();
       await Future<void>.delayed(Duration.zero);
@@ -380,7 +405,7 @@ void main() {
         _BookingRepo(),
         detectionRepository: _FakeDetectionRepo(analyseThrows: error),
         pendingStore: InMemoryPendingDetectionStore(),
-      )..debugSetPickedImage(tempImage);
+      )..debugSetPickedImage(testImageBytes);
       await provider.submitMultiObject();
       return provider;
     }
@@ -425,10 +450,14 @@ void main() {
       expect(provider.scanResult, isNull);
     });
 
-    test('isSubmitting is true while detection is in flight, and nothing is shown early', () async {
+    test('isSubmitting is true while the classify fallback is in flight, and nothing is shown early', () async {
       final pending = Completer<AIScanResult>();
-      final provider = AIScanProvider(_BookingRepo(), scanRepository: _FakeScanRepo(pending: pending), pendingStore: InMemoryPendingDetectionStore())
-        ..debugSetPickedImage(tempImage);
+      final provider = AIScanProvider(
+        _BookingRepo(),
+        scanRepository: _FakeScanRepo(pending: pending),
+        detectionRepository: _FakeDetectionRepo(json: multiObjectEmptyFixture()),
+        pendingStore: InMemoryPendingDetectionStore(),
+      )..debugSetPickedImage(testImageBytes);
 
       final future = provider.submit();
       await Future<void>.delayed(Duration.zero);
@@ -461,7 +490,7 @@ void main() {
       expect(provider.isRestoredResult, isTrue);
       expect(provider.scanLogId, 95);
       expect(provider.uploadedImageUrl, _imageUrl);
-      expect(provider.pickedImage, isNull);
+      expect(provider.pickedImageBytes, isNull);
       expect((provider.suggestedQuantityOf(10), provider.suggestedQuantityOf(1)), (3, 1));
       expect(provider.isRestoring, isFalse);
     });
@@ -510,7 +539,7 @@ void main() {
     test('a completed POST is not followed by a GET', () async {
       final detection = _FakeDetectionRepo(json: multiObjectFixture());
       final provider = AIScanProvider(_BookingRepo(), detectionRepository: detection, pendingStore: InMemoryPendingDetectionStore())
-        ..debugSetPickedImage(tempImage);
+        ..debugSetPickedImage(testImageBytes);
 
       await provider.submitMultiObject();
       await provider.resumePendingDetection(); // e.g. a stray call: result already present

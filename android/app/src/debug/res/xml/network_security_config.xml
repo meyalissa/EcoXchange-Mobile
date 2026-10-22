@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-build-only cleartext allowance for local development.
+
+  EcoXchange's Settings to Server Connection screen lets a developer or
+  tester point the installed app at ANY LAN address typed at runtime (the
+  laptop's IP changes every time it joins a different Wi-Fi network; see
+  run_ecoxchange.ps1 in the project root). Android's Network Security
+  Config has no way to express "any private LAN IP" (only literal
+  domains/IPs, never a CIDR range), so a static per-IP allow-list is not
+  workable for that use case.
+
+  This file is under android/app/src/debug, which Gradle merges into
+  DEBUG builds only; it never applies to a release build, which keeps
+  using android/app/src/main/AndroidManifest.xml (no networkSecurityConfig
+  reference at all) and Android's own default of blocking cleartext for a
+  targetSdk 28+ app. The production security posture is therefore
+  unchanged.
+
+  Consequence of this file: a debug APK accepts plain HTTP to ANY host
+  while installed, not just this project's Laravel server. That is the
+  explicit, narrowly scoped tradeoff accepted here for a dev-only,
+  developer/tester-installed build, never the release build's posture.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

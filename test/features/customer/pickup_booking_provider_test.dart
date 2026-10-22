@@ -4,6 +4,8 @@
 // its public methods — no HTTP/Dio call ever happens in these tests, same
 // convention every other provider test in this project already uses.
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ecoxchange_mobile/core/api/api_client.dart';
@@ -101,7 +103,7 @@ class _FakeBookingRepository extends CustomerPickupBookingRepository {
   }
 
   @override
-  Future<ReviewResult> review({required Map<int, int> quantities, required int addressId, required int centerId, int? scanLogId}) async {
+  Future<ReviewResult> review({required Map<int, int> quantities, required int addressId, required int centerId, int? scanLogId, List<int>? scanLogIds}) async {
     if (throwOn != null) throw throwOn!;
     return reviewResult!;
   }
@@ -359,21 +361,27 @@ void main() {
   });
 
   group('PickupBookingProvider — schedule', () {
-    test('cannot proceed from schedule without both a date and a time slot', () {
+    test('cannot proceed from schedule without both a date and a time, for a scheduled booking', () {
       final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
       expect(provider.canProceedFromSchedule, isFalse);
 
       provider.setPickupDate(DateTime(2026, 12, 1));
       expect(provider.canProceedFromSchedule, isFalse);
 
-      provider.setPickupTimeSlot('08:00-10:00');
+      provider.setPickupTime(DateTime(2026, 12, 1, 8, 0));
       expect(provider.canProceedFromSchedule, isTrue);
     });
 
-    test('setPickupTimeSlot only ever stores one of the real slot values the caller passes', () {
+    test('a Pickup Now booking can proceed without any date/time at all', () {
       final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
-      provider.setPickupTimeSlot('12:00-14:00');
-      expect(provider.pickupTimeSlot, '12:00-14:00');
+      provider.setBookingMode('now');
+      expect(provider.canProceedFromSchedule, isTrue);
+    });
+
+    test('setPickupTime stores the picked time and formats it as the exact "h:mm a" string the server expects', () {
+      final provider = PickupBookingProvider(_FakeBookingRepository(), _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
+      provider.setPickupTime(DateTime(2026, 12, 1, 14, 0));
+      expect(provider.pickupTimeLabel, '2:00 PM');
     });
   });
 
@@ -450,6 +458,78 @@ void main() {
       expect(ok, isFalse);
       expect(provider.reviewResult, isNull);
     });
+
+    // Task 1 (Review & Submit photo gallery): the server's own `images`
+    // array (PickupPreparationController::review()) — not just the
+    // backward-compatible singular `image` — must reach the provider
+    // unchanged.
+    test('loadReview() exposes every real scan-session image, not just the first', () async {
+      final review = ReviewResult.fromJson({
+        'ready_to_submit': true, 'reasons': [],
+        'address': {
+          'id': 1, 'label': 'Home', 'house_no': '12', 'street_name': 'Jalan Desa', 'city': 'KL',
+          'postcode': '58100', 'state': 'WP KL', 'formatted': '12, Jalan Desa, KL', 'short_address': 'Jalan Desa',
+          'latitude': 3.1, 'longitude': 101.6, 'has_coordinates': true, 'is_default': true,
+        },
+        'centre': {'id': 1, 'name': 'EcoGreen'},
+        'items': [
+          {'item_id': 1, 'name': 'Plastic Bottle', 'quantity': 2, 'weight_kg': 0.10},
+        ],
+        'total_weight_kg': 0.10, 'feasibility': null,
+        'image': {'scan_log_id': 201, 'image_url': 'https://ecoxchange.test/storage/scans/201.png'},
+        'images': [
+          {'scan_log_id': 201, 'image_url': 'https://ecoxchange.test/storage/scans/201.png'},
+          {'scan_log_id': 202, 'image_url': 'https://ecoxchange.test/storage/scans/202.png'},
+          {'scan_log_id': 203, 'image_url': 'https://ecoxchange.test/storage/scans/203.png'},
+        ],
+      });
+      final repo = _FakeBookingRepository(reviewResult: review);
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
+      provider.setQuantity(_item(), 1);
+      provider.addAddressAndSelect(_address());
+      provider.selectCentre(_centre());
+
+      await provider.loadReview();
+
+      expect(provider.reviewResult!.images, hasLength(3));
+      expect(provider.reviewResult!.images.map((i) => i.scanLogId), [201, 202, 203]);
+    });
+
+    test('an older/no-gallery response (no "images" key) defaults to an empty list, never a crash', () async {
+      final review = ReviewResult.fromJson({
+        'ready_to_submit': true, 'reasons': [],
+        'address': {
+          'id': 1, 'label': 'Home', 'house_no': '12', 'street_name': 'Jalan Desa', 'city': 'KL',
+          'postcode': '58100', 'state': 'WP KL', 'formatted': '12, Jalan Desa, KL', 'short_address': 'Jalan Desa',
+          'latitude': 3.1, 'longitude': 101.6, 'has_coordinates': true, 'is_default': true,
+        },
+        'centre': {'id': 1, 'name': 'EcoGreen'},
+        'items': [
+          {'item_id': 1, 'name': 'Plastic Bottle', 'quantity': 1, 'weight_kg': 0.05},
+        ],
+        'total_weight_kg': 0.05, 'feasibility': null, 'image': null,
+        // no 'images' key at all
+      });
+
+      expect(review.images, isEmpty);
+    });
+
+    test('re-loading the review (e.g. navigating back then forward again) returns the same gallery, not a stale/different one', () async {
+      final review = readyReview();
+      final repo = _FakeBookingRepository(reviewResult: review);
+      final provider = PickupBookingProvider(repo, _FakeAddressRepository(), CustomerRecyclingCentreRepository(ApiClient()));
+      provider.setQuantity(_item(), 1);
+      provider.addAddressAndSelect(_address());
+      provider.selectCentre(_centre());
+
+      await provider.loadReview();
+      final first = provider.reviewResult;
+      await provider.loadReview();
+      final second = provider.reviewResult;
+
+      expect(first!.image, second!.image);
+      expect(first.images, second.images);
+    });
   });
 
   group('PickupBookingProvider — scan_log_id handling', () {
@@ -461,7 +541,7 @@ void main() {
         CustomerRecyclingCentreRepository(ApiClient()),
       );
 
-      final ok = await provider.uploadImage('/tmp/fake.jpg');
+      final ok = await provider.uploadImage(Uint8List.fromList([1, 2, 3]), 'fake.jpg');
 
       expect(ok, isFalse);
       expect(provider.scanLogId, isNull);
@@ -488,7 +568,7 @@ void main() {
       expect(provider.canSubmit, isFalse); // still missing date/time
 
       provider.setPickupDate(DateTime(2026, 12, 1));
-      provider.setPickupTimeSlot('08:00-10:00');
+      provider.setPickupTime(DateTime(2026, 12, 1, 8, 0));
       expect(provider.canSubmit, isTrue);
     });
 
@@ -499,7 +579,7 @@ void main() {
       provider.addAddressAndSelect(_address());
       provider.selectCentre(_centre());
       provider.setPickupDate(DateTime(2026, 12, 1));
-      provider.setPickupTimeSlot('08:00-10:00');
+      provider.setPickupTime(DateTime(2026, 12, 1, 8, 0));
 
       final first = provider.submit();
       final second = provider.submit();
@@ -518,7 +598,7 @@ class _ThrowingImageBookingRepository extends CustomerPickupBookingRepository {
   final ApiException _error;
 
   @override
-  Future<ScanUploadResult> uploadImage(String filePath) async => throw _error;
+  Future<ScanUploadResult> uploadImage(Uint8List bytes, String filename) async => throw _error;
 }
 
 /// Counts real `submit()` invocations to prove the provider's own
@@ -534,10 +614,12 @@ class _SlowSubmitRepository extends CustomerPickupBookingRepository {
     required Map<int, int> quantities,
     required int addressId,
     required int centerId,
-    required String pickupDate,
-    required String pickupTime,
+    required String bookingMode,
+    String? pickupDate,
+    String? pickupTime,
     String? notes,
     int? scanLogId,
+    List<int>? scanLogIds,
   }) async {
     submitCallCount++;
     await Future<void>.delayed(const Duration(milliseconds: 30));

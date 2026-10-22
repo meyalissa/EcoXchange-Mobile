@@ -76,8 +76,37 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Build-time only — generates the Android launcher icon (incl. adaptive
+  # icon) and web favicon/icons from the source images under assets/icon/
+  # (see the `flutter_launcher_icons:` config below). Never bundled into
+  # the app itself; run `dart run flutter_launcher_icons` after changing
+  # either source image.
+  flutter_launcher_icons: ^0.14.4
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
+
+# EcoXchange launcher icon — see pubspec.yaml's dev_dependencies comment on
+# flutter_launcher_icons. Source images are pre-processed (trimmed to
+# content, re-centered) from the official EcoXchange logo:
+#   - app_icon.png: plain/legacy icon — opaque white background, used for
+#     web and any pre-adaptive-icon Android surface, generously filled.
+#   - app_icon_foreground.png: adaptive-icon foreground layer — transparent
+#     background, deliberately smaller fill (~62%) so Android's circular/
+#     squircle/rounded-square launcher masks (which crop roughly the outer
+#     third of a 108x108dp adaptive icon) never clip the house, arrows or
+#     leaf.
+flutter_launcher_icons:
+  android: true # overwrites the existing mipmap-*/ic_launcher.png set — AndroidManifest.xml already references @mipmap/ic_launcher, so no manifest change is needed.
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    background_color: "#FFFFFF"
+    theme_color: "#136B40"
 
 # The following section is specific to Flutter packages.
 flutter:
@@ -89,6 +118,7 @@ flutter:
 
   assets:
     - assets/map_markers/
+    - assets/branding/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

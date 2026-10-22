@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../storage/token_storage.dart';
 import 'api_config.dart';
@@ -10,7 +13,13 @@ import 'api_exception.dart';
 /// directly from a widget. Responsibilities:
 ///   - attaches `Authorization: Bearer <token>` automatically when a token
 ///     is in secure storage (see TokenStorage) — callers never touch headers;
-///   - attaches the dev-only `Host` header override (see ApiConfig's docblock);
+///   - attaches the dev-only `Host` header override on NATIVE platforms only
+///     (see ApiConfig's docblock: web's `baseUrl` already resolves the real
+///     vhost, and a browser's `XMLHttpRequest`/`fetch` refuses to let a
+///     script set `Host` at all — it's a forbidden header per the Fetch
+///     spec. Confirmed live in Chrome: setting it unconditionally produced
+///     a "Refused to set unsafe header 'Host'" console warning on every
+///     single request);
 ///   - unwraps Laravel's real `{success, message, data}` / `{success,
 ///     message, errors}` envelope (confirmed via routes/api.php +
 ///     ApiResponse trait inspection — never a different mobile-only shape);
@@ -23,14 +32,15 @@ import 'api_exception.dart';
 ///     only exposes this one hook.
 class ApiClient {
   ApiClient({TokenStorage? tokenStorage}) : _tokenStorage = tokenStorage ?? TokenStorage() {
+    _baseUrl = ApiConfig.baseUrl;
     _dio = Dio(
       BaseOptions(
-        baseUrl: ApiConfig.baseUrl + ApiConfig.apiPrefix,
+        baseUrl: _baseUrl + ApiConfig.apiPrefix,
         connectTimeout: ApiConfig.connectTimeout,
         receiveTimeout: ApiConfig.receiveTimeout,
         headers: {
           'Accept': 'application/json',
-          'Host': ApiConfig.devHost,
+          if (!kIsWeb) 'Host': ApiConfig.devHost,
         },
       ),
     );
@@ -50,6 +60,52 @@ class ApiClient {
 
   late final Dio _dio;
   final TokenStorage _tokenStorage;
+  late String _baseUrl;
+
+  /// The base URL every request is currently going to (without
+  /// [ApiConfig.apiPrefix]) — what Settings shows as the active server
+  /// URL. Starts as whatever [ApiConfig.baseUrl] resolved to at
+  /// construction; see [updateBaseUrl] for how it changes afterwards.
+  String get baseUrl => _baseUrl;
+
+  /// Repoints every subsequent request at [newBaseUrl] (already expected
+  /// to be [ApiConfig.normalizeBaseUrl]-clean). This is the ONE place a
+  /// server-URL change takes effect — every repository/provider in the
+  /// app shares this single [ApiClient] instance (see main.dart), so
+  /// nothing else needs to be rebuilt or re-fetched for the change to
+  /// apply to the very next request. Does not touch the stored Sanctum
+  /// token or trigger a logout; see [ServerSettingsScreen]'s docblock for
+  /// why a URL change alone never needs to.
+  void updateBaseUrl(String newBaseUrl) {
+    _baseUrl = newBaseUrl;
+    _dio.options.baseUrl = newBaseUrl + ApiConfig.apiPrefix;
+  }
+
+  /// "Test Connection" for the Settings screen — a plain reachability
+  /// check against Laravel's own built-in health route
+  /// ([ApiConfig.healthCheckPath]), registered outside `/api/v1` and
+  /// requiring no Sanctum token (confirmed via `php artisan route:list`
+  /// and a live request — it returns Laravel's default HTML page, never
+  /// JSON, so this checks status code only, never the `{success,...}`
+  /// envelope every other endpoint uses). Touches no business/pickup
+  /// endpoint and creates nothing.
+  ///
+  /// [candidateBaseUrl] is tested directly — an absolute URL passed to
+  /// Dio overrides [[BaseOptions.baseUrl]] entirely, so this never
+  /// disturbs [_dio]'s actual configured base URL, letting a user test a
+  /// different address before deciding to [updateBaseUrl]/save it.
+  Future<bool> testConnection(String candidateBaseUrl) async {
+    try {
+      final response = await _dio.get(
+        '$candidateBaseUrl${ApiConfig.healthCheckPath}',
+        options: Options(validateStatus: (status) => status != null && status < 500),
+      );
+      final status = response.statusCode;
+      return status != null && status >= 200 && status < 300;
+    } on DioException catch (e) {
+      throw _mapDioException(e);
+    }
+  }
 
   /// Set by AuthProvider at startup. Fired once per genuine 401 on an
   /// authenticated request (never for /auth/login itself — a wrong
@@ -86,16 +142,26 @@ class ApiClient {
   /// the real backend field name exactly (`photo`); [fields] carries any
   /// additional plain form fields the endpoint expects (none today, but
   /// kept generic rather than hardcoding a single-file shape).
+  ///
+  /// Takes raw [bytes] + a [filename] rather than a filesystem path —
+  /// `dart:io`'s `File`/`MultipartFile.fromFile` do not work on Flutter Web
+  /// (confirmed: `image_picker`'s `XFile.path` is a blob URL there, not a
+  /// real path `File` can open). `XFile.readAsBytes()` and
+  /// `MultipartFile.fromBytes()` both work identically on every platform,
+  /// so callers read bytes once via `XFile.readAsBytes()` and every
+  /// platform takes the same code path here — no `kIsWeb` branching needed
+  /// in this class or any of its callers.
   Future<Map<String, dynamic>> postMultipart(
     String path, {
     required String fileField,
-    required String filePath,
+    required Uint8List bytes,
+    required String filename,
     Map<String, dynamic> fields = const {},
   }) {
     return _request(() async {
       final formData = FormData.fromMap({
         ...fields,
-        fileField: await MultipartFile.fromFile(filePath),
+        fileField: MultipartFile.fromBytes(bytes, filename: filename),
       });
       return _dio.post(path, data: formData);
     });

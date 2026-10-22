@@ -25,6 +25,7 @@ class AppTextField extends StatelessWidget {
     this.keyboardType,
     this.textInputAction,
     this.onFieldSubmitted,
+    this.onChanged,
     this.validator,
     this.variant = AppTextFieldVariant.boxed,
   });
@@ -37,6 +38,7 @@ class AppTextField extends StatelessWidget {
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final ValueChanged<String>? onFieldSubmitted;
+  final ValueChanged<String>? onChanged;
   final String? Function(String?)? validator;
   final AppTextFieldVariant variant;
 
@@ -50,6 +52,7 @@ class AppTextField extends StatelessWidget {
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       onFieldSubmitted: onFieldSubmitted,
+      onChanged: onChanged,
       validator: validator,
       style: TextStyle(fontSize: 14, color: isUnderline ? AppColors.green900 : AppColors.n800),
       decoration: InputDecoration(

@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ecoxchange_mobile/core/api/api_client.dart';
+import 'package:ecoxchange_mobile/core/widgets/app_network_image.dart';
 import 'package:ecoxchange_mobile/features/customer/data/repositories/customer_recycling_centre_repository.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/address.dart';
 import 'package:ecoxchange_mobile/features/customer/data/models/category.dart';
@@ -152,6 +153,127 @@ void main() {
       expect(tester.widget<ElevatedButton>(submitButton).onPressed, isNull);
     });
   });
+
+  group('BookingReviewStep — scan-session photo gallery (Task 1)', () {
+    // Mirrors the real `POST /customer/pickup/review` shape
+    // (PickupPreparationController::review()): `images` is the full
+    // scan-session gallery; `image` mirrors the first one for backward
+    // compatibility and is never relied on here.
+    ReviewResult readyReviewWithImages(List<int> scanLogIds) => ReviewResult.fromJson({
+          'ready_to_submit': true,
+          'reasons': [],
+          'address': {
+            'id': 1, 'label': 'Home', 'house_no': '1', 'street_name': 'A', 'city': 'KL', 'postcode': '58100',
+            'state': 'WP', 'formatted': '1, A, KL', 'short_address': null, 'latitude': 3.1, 'longitude': 101.6,
+            'has_coordinates': true, 'is_default': true,
+          },
+          'centre': {'id': 1, 'name': 'EcoGreen'},
+          'items': [
+            {'item_id': 1, 'name': 'Plastic Bottle', 'quantity': scanLogIds.length, 'weight_kg': 0.05 * scanLogIds.length},
+          ],
+          'total_weight_kg': 0.05 * scanLogIds.length,
+          'feasibility': {'recommendation': 'Proceed with Pickup', 'estimated_reward': 1.0, 'distance_km': 1.0, 'additional_reward_needed': null},
+          'image': scanLogIds.isEmpty ? null : {'scan_log_id': scanLogIds.first, 'image_url': 'https://ecoxchange.test/storage/scans/${scanLogIds.first}.png'},
+          'images': [for (final id in scanLogIds) {'scan_log_id': id, 'image_url': 'https://ecoxchange.test/storage/scans/$id.png'}],
+        });
+
+    testWidgets('no scan-session images falls back to the existing "Add a Photo" control', (tester) async {
+      final booking = _ReviewSeededBookingProvider(review: readyReviewWithImages(const []));
+
+      await tester.pumpWidget(_wrap(booking: booking, child: BookingReviewStep(onBack: () {})));
+      await tester.pumpAndSettle();
+
+      expect(find.text('PHOTO (OPTIONAL)'), findsOneWidget);
+      expect(find.text('Add a Photo'), findsOneWidget);
+      expect(find.byKey(const Key('scan-photo-0')), findsNothing);
+    });
+
+    testWidgets('one scanned image renders a single thumbnail, no "View all" control', (tester) async {
+      final booking = _ReviewSeededBookingProvider(review: readyReviewWithImages(const [101]));
+
+      await tester.pumpWidget(_wrap(booking: booking, child: BookingReviewStep(onBack: () {})));
+      await tester.pumpAndSettle();
+
+      expect(find.text('PHOTOS'), findsOneWidget);
+      expect(find.text('1 photo from your scan'), findsOneWidget);
+      expect(find.byKey(const Key('scan-photo-101')), findsOneWidget);
+      expect(find.byKey(const Key('scan-gallery-toggle')), findsNothing);
+      expect(find.text('Add a Photo'), findsNothing, reason: 'the separate single-photo control is not shown when there is a real gallery');
+    });
+
+    testWidgets('multiple images within the initial limit (3) show all of them, still no "View all"', (tester) async {
+      final booking = _ReviewSeededBookingProvider(review: readyReviewWithImages(const [101, 102, 103]));
+
+      await tester.pumpWidget(_wrap(booking: booking, child: BookingReviewStep(onBack: () {})));
+      await tester.pumpAndSettle();
+
+      expect(find.text('3 photos from your scan'), findsOneWidget);
+      for (final id in [101, 102, 103]) {
+        expect(find.byKey(Key('scan-photo-$id')), findsOneWidget);
+      }
+      expect(find.byKey(const Key('scan-gallery-toggle')), findsNothing);
+    });
+
+    testWidgets('more images than the initial limit shows "View all (N)", and expand/collapse works', (tester) async {
+      final booking = _ReviewSeededBookingProvider(review: readyReviewWithImages(const [101, 102, 103, 104, 105]));
+
+      await tester.pumpWidget(_wrap(booking: booking, child: BookingReviewStep(onBack: () {})));
+      await tester.pumpAndSettle();
+
+      expect(find.text('5 photos from your scan'), findsOneWidget);
+      // Only the first 3 are visible initially.
+      for (final id in [101, 102, 103]) {
+        expect(find.byKey(Key('scan-photo-$id')), findsOneWidget);
+      }
+      for (final id in [104, 105]) {
+        expect(find.byKey(Key('scan-photo-$id')), findsNothing);
+      }
+      expect(find.text('View all (5)'), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const Key('scan-gallery-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scan-gallery-toggle')));
+      await tester.pumpAndSettle();
+
+      for (final id in [101, 102, 103, 104, 105]) {
+        expect(find.byKey(Key('scan-photo-$id')), findsOneWidget);
+      }
+      expect(find.text('Show less'), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const Key('scan-gallery-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scan-gallery-toggle')));
+      await tester.pumpAndSettle();
+
+      for (final id in [104, 105]) {
+        expect(find.byKey(Key('scan-photo-$id')), findsNothing);
+      }
+      expect(find.text('View all (5)'), findsOneWidget);
+    });
+
+    testWidgets('tapping a thumbnail opens its own image preview, with a close action back to the review page', (tester) async {
+      final booking = _ReviewSeededBookingProvider(review: readyReviewWithImages(const [101, 102]));
+
+      await tester.pumpWidget(_wrap(booking: booking, child: BookingReviewStep(onBack: () {})));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('scan-photo-102')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scan-photo-102')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('scan-photo-preview-close')), findsOneWidget);
+      // The preview's own network image targets the tapped photo's real URL.
+      final preview = tester.widget<AppNetworkImage>(find.descendant(of: find.byType(Dialog), matching: find.byType(AppNetworkImage)));
+      expect(preview.url, contains('102'));
+
+      await tester.tap(find.byKey(const Key('scan-photo-preview-close')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('scan-photo-preview-close')), findsNothing);
+      expect(find.text('PHOTOS'), findsOneWidget, reason: 'back on the review page, not lost');
+    });
+  });
 }
 
 /// A `PickupBookingProvider` whose `loadReview()` is pre-seeded with a
@@ -180,7 +302,7 @@ class _SeededReviewRepository extends CustomerPickupBookingRepository {
   final ReviewResult _review;
 
   @override
-  Future<ReviewResult> review({required Map<int, int> quantities, required int addressId, required int centerId, int? scanLogId}) async => _review;
+  Future<ReviewResult> review({required Map<int, int> quantities, required int addressId, required int centerId, int? scanLogId, List<int>? scanLogIds}) async => _review;
 }
 
 const _fixtureAddress = AddressModelFixture();

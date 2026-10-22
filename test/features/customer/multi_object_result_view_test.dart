@@ -4,7 +4,7 @@
 // test/fixtures/ai_scan_fixtures.dart) through a fake detection repository.
 // These verify the review UI only — no detector runs here.
 
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +26,7 @@ class _BookingRepo extends CustomerPickupBookingRepository {
   _BookingRepo() : super(ApiClient());
 
   @override
-  Future<ScanUploadResult> uploadImage(String filePath) async =>
+  Future<ScanUploadResult> uploadImage(Uint8List bytes, String filename) async =>
       const ScanUploadResult(scanLogId: 77, imageUrl: 'https://ecoxchange.test/storage/scans/y.png');
 }
 
@@ -55,24 +55,14 @@ void main() {
   // An off-screen tap must fail the test, never silently miss.
   WidgetController.hitTestWarningShouldBeFatal = true;
 
-  late Directory tempDir;
-  late File photo;
-
-  setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('multi_object_view_test');
-    photo = File('${tempDir.path}/photo.png')..writeAsBytesSync(_png1x1);
-  });
-
-  tearDown(() {
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-  });
+  final photoBytes = Uint8List.fromList(_png1x1);
 
   Future<AIScanProvider> scanned(Map<String, dynamic> fixture) async {
     final provider = AIScanProvider(
       _BookingRepo(),
       detectionRepository: _FixtureDetectionRepo(fixture),
       pendingStore: InMemoryPendingDetectionStore(),
-    )..debugSetPickedImage(photo);
+    )..debugSetPickedImage(photoBytes);
     await provider.submitMultiObject();
     return provider;
   }
@@ -80,22 +70,25 @@ void main() {
   Future<void> pumpView(
     WidgetTester tester,
     AIScanProvider provider, {
-    File? image,
+    Uint8List? imageBytes,
     VoidCallback? onContinue,
     VoidCallback? onChooseManually,
   }) async {
+    // No SingleChildScrollView wrapper here — MultiObjectResultView now owns
+    // its own scrolling content + fixed bottom action area (Task 2:
+    // standardized bottom actions), exactly as it's really used inside
+    // ScanClassifyScreen's Scaffold body. Wrapping it in another scrollable
+    // (unbounded height) breaks its internal Expanded.
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: SingleChildScrollView(
-            child: ChangeNotifierProvider.value(
-              value: provider,
-              child: MultiObjectResultView(
-                image: image,
-                onContinue: onContinue ?? () {},
-                onChooseManually: onChooseManually ?? () {},
-                onScanAnother: provider.reset,
-              ),
+          body: ChangeNotifierProvider.value(
+            value: provider,
+            child: MultiObjectResultView(
+              imageBytes: imageBytes,
+              onContinue: onContinue ?? () {},
+              onChooseManually: onChooseManually ?? () {},
+              onScanAnother: provider.reset,
             ),
           ),
         ),
@@ -238,7 +231,7 @@ void main() {
 
   testWidgets('bounding boxes are drawn over the photo when the image size is known', (tester) async {
     final provider = await scanned(multiObjectFixture());
-    await pumpView(tester, provider, image: photo);
+    await pumpView(tester, provider, imageBytes: photoBytes);
 
     expect(find.byKey(const Key('ai-detection-overlay')), findsOneWidget);
   });

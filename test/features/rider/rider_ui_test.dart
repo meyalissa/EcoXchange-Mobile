@@ -232,6 +232,7 @@ void main() {
       // Log Out lives on the Profile tab.
       await tester.tap(find.text('Profile'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.byKey(const Key('rider-logout')), 200, scrollable: find.byType(Scrollable).last);
       await tester.tap(find.byKey(const Key('rider-logout')));
       await tester.pumpAndSettle();
 
@@ -370,6 +371,7 @@ void main() {
       final stats = find.byKey(const Key('rider-profile-stats'));
       expect(find.descendant(of: stats, matching: find.text('14')), findsOneWidget);
       expect(find.descendant(of: stats, matching: find.text('3')), findsOneWidget);
+      await tester.scrollUntilVisible(find.byKey(const Key('rider-logout')), 200, scrollable: find.byType(Scrollable).last);
       expect(find.byKey(const Key('rider-logout')), findsOneWidget);
       expect(find.textContaining('900101'), findsNothing);
       expect(find.textContaining('D1234567'), findsNothing);
