@@ -14,6 +14,7 @@ class RiderPickupSummary {
     required this.reference,
     required this.status,
     required this.assignmentStatus,
+    required this.bookingMode,
     required this.pickupDate,
     required this.pickupTime,
     required this.customerName,
@@ -33,6 +34,7 @@ class RiderPickupSummary {
       reference: json['reference'] as String,
       status: json['status'] as String,
       assignmentStatus: json['assignment_status'] as String?,
+      bookingMode: json['booking_mode'] as String? ?? 'scheduled',
       pickupDate: json['pickup_date'] as String?,
       pickupTime: json['pickup_time'] as String?,
       customerName: customer?['name'] as String?,
@@ -49,6 +51,10 @@ class RiderPickupSummary {
   final String reference;
   final String status;
   final String? assignmentStatus;
+
+  /// `'now'` or `'scheduled'` — see `PickupTimeService::BOOKING_MODES`.
+  final String bookingMode;
+  bool get isPickupNow => bookingMode == 'now';
   final String? pickupDate;
   final String? pickupTime;
   final String? customerName;

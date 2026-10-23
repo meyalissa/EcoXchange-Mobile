@@ -321,7 +321,9 @@ class _JobCard extends StatelessWidget {
             // -- this one was the odd one out at 21px (Typography Polish pass).
             Text(pickup.customerName ?? '—', style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
             if (pickup.addressSummary != null) _CardLine(icon: Icons.location_on_outlined, text: pickup.addressSummary!),
-            if (pickup.pickupDate != null)
+            if (pickup.isPickupNow)
+              const _CardLine(icon: Icons.bolt_outlined, text: 'Pickup Now')
+            else if (pickup.pickupDate != null)
               _CardLine(icon: Icons.schedule, text: [pickup.pickupDate, pickup.pickupTime].whereType<String>().join(' · ')),
             const SizedBox(height: 12),
             Wrap(
@@ -467,7 +469,7 @@ class _ScheduleRow extends StatelessWidget {
                 children: [
                   Text(pickup.reference, style: AppTheme.displayFont(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.n800)),
                   Text(
-                    [pickup.addressSummary, pickup.pickupTime].whereType<String>().join(' · '),
+                    [pickup.addressSummary, pickup.isPickupNow ? 'Pickup Now' : pickup.pickupTime].whereType<String>().join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 13, color: AppColors.n600),

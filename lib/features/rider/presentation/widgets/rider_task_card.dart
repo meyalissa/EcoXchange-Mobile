@@ -43,7 +43,9 @@ class RiderTaskCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(pickup.customerName ?? '—', style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.n800)),
               if (pickup.addressSummary != null) _Line(icon: Icons.location_on_outlined, text: pickup.addressSummary!),
-              if (pickup.pickupDate != null || pickup.pickupTime != null)
+              if (pickup.isPickupNow)
+                const _Line(icon: Icons.bolt_outlined, text: 'Pickup Now')
+              else if (pickup.pickupDate != null || pickup.pickupTime != null)
                 _Line(icon: Icons.schedule, text: [pickup.pickupDate, pickup.pickupTime].whereType<String>().join(' · ')),
               if (pickup.itemNames.isNotEmpty || weightLabel != null) ...[
                 const SizedBox(height: 10),

@@ -1,3 +1,17 @@
+import 'pickup_booking.dart' show ReviewImage;
+
+/// Task 3 — mirrors `PickupCancellationController::REASONS` exactly (server
+/// key -> label), the one reason catalogue in the system (inspection
+/// confirmed no pre-existing one to reuse). `'other'` is handled specially
+/// by the UI (shows a free-text field instead of just sending this label).
+const pickupCancelReasons = <String, String>{
+  'wrong_items': 'I selected the wrong items.',
+  'wrong_address': 'I entered the wrong address.',
+  'unavailable': 'I am no longer available.',
+  'change_schedule': 'I want to change the pickup schedule.',
+  'other': 'Other',
+};
+
 /// EcoXchange Mobile — full pickup detail, shaped EXACTLY like
 /// `App\Http\Resources\Customer\PickupDetailResource` (confirmed by
 /// inspection — every field below has a real counterpart there, nothing
@@ -9,6 +23,7 @@ class PickupDetail {
     required this.reference,
     required this.status,
     required this.notes,
+    required this.bookingMode,
     required this.pickupDate,
     required this.pickupTime,
     required this.estimatedWeightKg,
@@ -22,6 +37,8 @@ class PickupDetail {
     required this.assignedRider,
     required this.trackingRoute,
     required this.imageUrl,
+    required this.images,
+    required this.cancellationReason,
   });
 
   factory PickupDetail.fromJson(Map<String, dynamic> json) {
@@ -30,6 +47,7 @@ class PickupDetail {
       reference: json['reference'] as String,
       status: json['status'] as String,
       notes: json['notes'] as String?,
+      bookingMode: json['booking_mode'] as String? ?? 'scheduled',
       pickupDate: json['pickup_date'] as String?,
       pickupTime: json['pickup_time'] as String?,
       estimatedWeightKg: (json['estimated_weight_kg'] as num?)?.toDouble(),
@@ -52,6 +70,16 @@ class PickupDetail {
       trackingRoute:
           json['tracking_route'] != null ? PickupTrackingRoute.fromJson(json['tracking_route'] as Map<String, dynamic>) : null,
       imageUrl: json['image_url'] as String?,
+      // Display All Uploaded Photos task — every photo from this pickup's
+      // scan session, not just the first (see PickupDetailResource's
+      // 'images' field / PickupRequest::uploadedImages()'s docblock for
+      // the backend side of this). Same shape ReviewResult.images already
+      // uses, so this reuses that exact model — never a second, parallel
+      // image-list type.
+      images: (json['images'] as List<dynamic>?)?.map((e) => ReviewImage.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
+      // Task 3 — only ever non-null once status is 'cancelled' (see
+      // PickupDetailResource's own gating).
+      cancellationReason: json['cancellation_reason'] as String?,
     );
   }
 
@@ -59,6 +87,12 @@ class PickupDetail {
   final String reference;
   final String status;
   final String? notes;
+
+  /// `'now'` or `'scheduled'` — see `PickupTimeService::BOOKING_MODES`.
+  /// Defaults to `'scheduled'` for any older server response that predates
+  /// this field, matching the column's own DB default.
+  final String bookingMode;
+  bool get isPickupNow => bookingMode == 'now';
   final String? pickupDate;
   final String? pickupTime;
   final double? estimatedWeightKg;
@@ -77,6 +111,20 @@ class PickupDetail {
   /// itself failed/is unconfigured — never fabricated client-side.
   final PickupTrackingRoute? trackingRoute;
   final String? imageUrl;
+
+  /// Every photo from this pickup's scan session, in upload order — never
+  /// just the representative/first one. Empty when the pickup has no
+  /// attached photos at all (same condition [imageUrl] being null reflects).
+  final List<ReviewImage> images;
+  final String? cancellationReason;
+
+  /// Client-side mirror of `PickupRequest::isCancellableByCustomer()` —
+  /// used only to decide whether to SHOW the Cancel Pickup button at all;
+  /// the server re-checks this for real (and can reject with 409
+  /// INVALID_TRANSITION) immediately before actually cancelling, since
+  /// this snapshot can go stale between opening the screen and tapping
+  /// Confirm. Never used to silently hide a genuine server-side rejection.
+  bool get isCancellableByCustomer => (status == 'pending' || status == 'approved') && assignedRider == null;
 }
 
 /// `tracking_route` in PickupDetailResource — a real Google Routes API

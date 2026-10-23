@@ -11,10 +11,10 @@ import '../../data/models/pickup_summary.dart';
 import '../providers/dashboard_provider.dart';
 import '../providers/pickup_list_provider.dart';
 import '../widgets/pickup_summary_card.dart';
-import 'booking/pickup_booking_screen.dart';
 import 'dashboard_screen.dart' show ActivePickupBanner;
 import 'pickup_detail_screen.dart';
 import 'pickup_list_screen.dart';
+import 'scan/multi_image_scan_screen.dart';
 
 /// EcoXchange Mobile — Customer Pickup Hub (02_customer_pickup design): the
 /// active pickup, "Request New Pickup" (the existing booking flow) and the
@@ -44,8 +44,12 @@ class _PickupHubScreenState extends State<PickupHubScreen> {
     await Future.wait([context.read<PickupListProvider>().refresh(), context.read<DashboardProvider>().refresh()]);
   }
 
+  /// Part A — scan-first: items are confirmed through the real AI Scan
+  /// flow (the same `MultiImageScanScreen`/`ScanClassifyScreen` the AI Scan
+  /// tab already uses) before reaching the booking flow, instead of
+  /// dropping straight into manual item selection.
   void _requestPickup() {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => PickupBookingScreen(onBookingComplete: _refresh)));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => MultiImageScanScreen(onBookingComplete: _refresh)));
   }
 
   /// The full list is pushed as its own route, so it gets the shell's

@@ -92,8 +92,12 @@ class PickupBookingSuccessScreen extends StatelessWidget {
                         const Text('PICKUP SUMMARY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.green600, letterSpacing: 0.4)),
                         const SizedBox(height: 10),
                         _Row(label: 'Status', value: _statusLabel(pickup.status)),
-                        _Row(label: 'Date', value: pickup.pickupDate ?? '—'),
-                        _Row(label: 'Time', value: pickup.pickupTime ?? '—'),
+                        if (pickup.isPickupNow)
+                          const _Row(label: 'Pickup', value: 'As soon as possible')
+                        else ...[
+                          _Row(label: 'Date', value: pickup.pickupDate ?? '—'),
+                          _Row(label: 'Time', value: pickup.pickupTime ?? '—'),
+                        ],
                         if (pickup.centre != null) _Row(label: 'Centre', value: pickup.centre!.name),
                         if (pickup.estimatedWeightKg != null) _Row(label: 'Est. weight', value: '${pickup.estimatedWeightKg!.toStringAsFixed(2)} kg'),
                       ],

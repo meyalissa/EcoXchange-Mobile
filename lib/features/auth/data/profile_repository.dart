@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../core/api/api_client.dart';
 import 'models/user_model.dart';
 
@@ -29,11 +31,13 @@ class ProfileRepository {
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 
-  /// [filePath] is a local file path from `image_picker` — reuses
-  /// [ApiClient.postMultipart] exactly as the AI Scan photo upload already
-  /// does, never a second multipart-upload implementation.
-  Future<UserModel> updatePhoto(String filePath) async {
-    final data = await _api.postMultipart('/profile/photo', fileField: 'photo', filePath: filePath);
+  /// [bytes] + [filename] from `image_picker`'s `XFile.readAsBytes()` —
+  /// reuses [ApiClient.postMultipart] exactly as the AI Scan photo upload
+  /// already does, never a second multipart-upload implementation. Bytes,
+  /// not a file path, because Flutter Web has no usable file path for a
+  /// picked image (see `ApiClient.postMultipart()`'s docblock).
+  Future<UserModel> updatePhoto(Uint8List bytes, String filename) async {
+    final data = await _api.postMultipart('/profile/photo', fileField: 'photo', bytes: bytes, filename: filename);
     return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 }

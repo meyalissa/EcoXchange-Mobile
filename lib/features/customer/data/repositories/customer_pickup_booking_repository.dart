@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../../core/api/api_client.dart';
 import '../../../../core/api/api_config.dart';
 import '../../../../core/api/api_exception.dart';
@@ -54,8 +56,11 @@ class CustomerPickupBookingRepository {
     return CentresResult.fromJson(data);
   }
 
-  Future<ScanUploadResult> uploadImage(String filePath) async {
-    final data = await _api.postMultipart('/customer/pickup/image', fileField: 'photo', filePath: filePath);
+  /// [bytes] + [filename] rather than a filesystem path — see
+  /// `ApiClient.postMultipart()`'s docblock for why (Flutter Web has no
+  /// usable file path for a picked image).
+  Future<ScanUploadResult> uploadImage(Uint8List bytes, String filename) async {
+    final data = await _api.postMultipart('/customer/pickup/image', fileField: 'photo', bytes: bytes, filename: filename);
     return ScanUploadResult.fromJson(data);
   }
 
@@ -117,39 +122,57 @@ class CustomerPickupBookingRepository {
     required int addressId,
     required int centerId,
     int? scanLogId,
+    List<int>? scanLogIds,
   }) async {
     final data = await _api.post('/customer/pickup/review', data: {
       'items': _itemsPayload(quantities),
       'address_id': addressId,
       'center_id': centerId,
       if (scanLogId != null) 'scan_log_id': scanLogId,
+      if (scanLogIds != null && scanLogIds.isNotEmpty) 'scan_log_ids': scanLogIds,
     });
     return ReviewResult.fromJson(data);
   }
 
-  /// POST /customer/pickup — the real final submission. `pickup_date` is
-  /// sent as `YYYY-MM-DD` (the exact format `Request::validate(['pickup_date'
-  /// => 'date', ...])` accepts); `pickup_time` is one of the real slot
-  /// strings the web wizard's own `<select>` uses (`"08:00-10:00"` etc — see
-  /// Stage 3 report §14 for why this app reuses those exact values instead
-  /// of inventing its own).
+  /// POST /customer/pickup — the real final submission.
+  ///
+  /// `bookingMode` is `'now'` or `'scheduled'` (see
+  /// `PickupPreparationController::store()`'s validation — Grab-style exact
+  /// time booking, Part A). For `'now'`, the server resolves the actual
+  /// requested instant itself from its own Asia/Kuala_Lumpur clock — a
+  /// client-supplied date/time is never trusted for that mode, so
+  /// [pickupDate]/[pickupTime] are optional and simply omitted from the
+  /// request when absent. For `'scheduled'`, `pickup_date` is `YYYY-MM-DD`
+  /// and `pickup_time` is one EXACT time in `"h:mm a"` 12-hour format
+  /// (e.g. `"10:00 AM"`) on a 15-minute increment — not a range — matching
+  /// `PickupTimeService::normalizeExactTime()` server-side exactly.
+  ///
+  /// [scanLogIds] (Part C — multi-image scanning) is the full list of scan
+  /// log ids from every image in this booking's scan session; the legacy
+  /// singular [scanLogId] is still accepted on its own for a single-image
+  /// booking and the two can be combined without double-counting (the
+  /// server de-duplicates).
   Future<PickupDetail> submit({
     required Map<int, int> quantities,
     required int addressId,
     required int centerId,
-    required String pickupDate,
-    required String pickupTime,
+    required String bookingMode,
+    String? pickupDate,
+    String? pickupTime,
     String? notes,
     int? scanLogId,
+    List<int>? scanLogIds,
   }) async {
     final data = await _api.post('/customer/pickup', data: {
       'items': _itemsPayload(quantities),
       'address_id': addressId,
       'center_id': centerId,
-      'pickup_date': pickupDate,
-      'pickup_time': pickupTime,
+      'booking_mode': bookingMode,
+      if (pickupDate != null) 'pickup_date': pickupDate,
+      if (pickupTime != null) 'pickup_time': pickupTime,
       if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
       if (scanLogId != null) 'scan_log_id': scanLogId,
+      if (scanLogIds != null && scanLogIds.isNotEmpty) 'scan_log_ids': scanLogIds,
     });
     return PickupDetail.fromJson(data['pickup'] as Map<String, dynamic>);
   }

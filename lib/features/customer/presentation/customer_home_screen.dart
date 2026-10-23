@@ -45,7 +45,50 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   static const aiScanTab = 2;
 
-  void _goToTab(int index) => setState(() => _tabIndex = index);
+  // Created eagerly here (not inline in build()'s MultiProvider) ONLY for
+  // the two providers _goToTab below needs to reach directly — a plain
+  // State method's own `context` sits ABOVE the MultiProvider built in
+  // build(), so `context.read<DashboardProvider>()` from there would
+  // never find it. Lifecycle is otherwise unchanged from before: still
+  // one instance for the whole CustomerHomeScreen session, still shared
+  // to descendants via ChangeNotifierProvider.value below.
+  //
+  // The other three providers (Pickup/Catalogue/RecyclingCentre) are
+  // deliberately left as plain `create:` callbacks in the MultiProvider
+  // below, NOT hoisted here — `create:` is lazy (Provider only calls it
+  // the first time something actually reads that type), and some of
+  // those screens aren't opened every session. Hoisting them would force
+  // every repository (e.g. CustomerAddressRepository, only otherwise
+  // needed by the Recycling Centres screen) to be looked up on every
+  // Home-shell build, which isn't guaranteed to be registered by every
+  // caller (confirmed by a real ProviderNotFoundException from a test
+  // that doesn't register CustomerAddressRepository at all).
+  late final DashboardProvider _dashboardProvider;
+  late final RewardProvider _rewardProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    _dashboardProvider = DashboardProvider(context.read<CustomerDashboardRepository>());
+    _rewardProvider = RewardProvider(context.read<CustomerRewardRepository>());
+  }
+
+  void _goToTab(int index) {
+    // Returning to Home from another tab. A pickup is completed on a
+    // RIDER's (or staff/RC's) own device, never through this customer
+    // session — so there is no local event this app could react to, and
+    // IndexedStack keeps DashboardScreen's State alive across tab
+    // switches (its initState().load() only ever fires once). Without
+    // this, "Your Impact This Month" and the wallet balance would keep
+    // showing whatever was loaded at app start, even after a pickup
+    // completes elsewhere. Reuses the exact same combined refresh the
+    // pull-to-refresh gesture on Home already performs.
+    if (index == 0 && _tabIndex != 0) {
+      _dashboardProvider.refresh();
+      _rewardProvider.refresh();
+    }
+    setState(() => _tabIndex = index);
+  }
 
   void _openItemsGuide(BuildContext context) {
     final provider = context.read<ItemCatalogueProvider>();
@@ -63,7 +106,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (context) => DashboardProvider(context.read<CustomerDashboardRepository>())),
+        ChangeNotifierProvider.value(value: _dashboardProvider),
+        ChangeNotifierProvider.value(value: _rewardProvider),
         ChangeNotifierProvider(create: (context) => PickupListProvider(context.read<CustomerPickupRepository>())),
         ChangeNotifierProvider(create: (context) => ItemCatalogueProvider(context.read<CustomerCatalogueRepository>())),
         ChangeNotifierProvider(
@@ -72,7 +116,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             context.read<CustomerAddressRepository>(),
           ),
         ),
-        ChangeNotifierProvider(create: (context) => RewardProvider(context.read<CustomerRewardRepository>())),
       ],
       child: Builder(
         builder: (context) => Scaffold(

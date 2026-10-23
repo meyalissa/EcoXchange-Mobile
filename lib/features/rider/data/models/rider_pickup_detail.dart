@@ -13,6 +13,7 @@ class RiderPickupDetail {
     required this.id,
     required this.reference,
     required this.status,
+    required this.bookingMode,
     required this.pickupDate,
     required this.pickupTime,
     required this.notes,
@@ -38,6 +39,7 @@ class RiderPickupDetail {
       id: json['id'] as int,
       reference: json['reference'] as String,
       status: json['status'] as String,
+      bookingMode: json['booking_mode'] as String? ?? 'scheduled',
       pickupDate: json['pickup_date'] as String?,
       pickupTime: json['pickup_time'] as String?,
       notes: json['notes'] as String?,
@@ -63,6 +65,12 @@ class RiderPickupDetail {
   final int id;
   final String reference;
   final String status;
+
+  /// `'now'` or `'scheduled'` — see `PickupTimeService::BOOKING_MODES`.
+  /// Never used to promise a guaranteed arrival time to the rider; it only
+  /// labels how the customer booked.
+  final String bookingMode;
+  bool get isPickupNow => bookingMode == 'now';
   final String? pickupDate;
   final String? pickupTime;
   final String? notes;

@@ -93,31 +93,37 @@ class _RewardScreenState extends State<RewardScreen> {
           children: [
             GradientHeader(
               gradient: AppColors.rewardsHeroGradient,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Wallet & Rewards', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600)),
+                  const Text('Wallet & Rewards', style: TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 2),
-                  Text('Rewards Hub', style: AppTheme.displayFont(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
-                  const SizedBox(height: 18),
+                  Text('Rewards Hub', style: AppTheme.displayFont(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.white)),
+                  const SizedBox(height: 14),
                   Container(
                     width: double.infinity,
                     key: const Key('rewards-wallet'),
-                    padding: const EdgeInsets.all(22),
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(AppRadii.r24)),
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(AppRadii.r20)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('WALLET BALANCE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                        const Text('WALLET BALANCE', style: TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 4),
-                        Text('RM ${balance.toStringAsFixed(2)}', style: AppTheme.displayFont(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white)),
-                        const SizedBox(height: 12),
+                        Text(
+                          'RM ${balance.toStringAsFixed(2)}',
+                          style: AppTheme.displayFont(fontSize: 29, fontWeight: FontWeight.w900, color: Colors.white),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 10),
                         Container(height: 1, color: Colors.white.withValues(alpha: 0.2)),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         Row(
                           children: [
                             Flexible(child: _WalletFigure(label: 'THIS MONTH', value: 'RM ${_thisMonthTotal(provider.transactions).toStringAsFixed(2)}')),
-                            const SizedBox(width: 28),
+                            const SizedBox(width: 20),
                             if (lifetime != null) Flexible(child: _WalletFigure(label: 'LIFETIME', value: 'RM ${lifetime.toStringAsFixed(2)}')),
                           ],
                         ),
@@ -127,30 +133,49 @@ class _RewardScreenState extends State<RewardScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
+              // The heading keeps its own natural (unshrunk) width and a
+              // hard one-line guarantee; the chip group is the one thing
+              // given a bounded width (via Expanded) so IT is the side
+              // that wraps onto a second row at narrow widths — the
+              // heading can never be squeezed or pushed onto two lines.
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(child: Text('Transactions', style: AppTheme.displayFont(fontSize: 19, fontWeight: FontWeight.w800, color: AppColors.n800))),
-                  for (final (label, type) in const [('All', null), ('Earned', 'earn'), ('Bonus', 'bonus')])
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: ChoiceChip(
-                        key: Key('rewards-filter-${type ?? 'all'}'),
-                        label: Text(label),
-                        selected: _typeFilter == type,
-                        onSelected: (_) => setState(() => _typeFilter = type),
-                        selectedColor: AppColors.green500,
-                        labelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _typeFilter == type ? Colors.white : AppColors.n700),
-                        showCheckmark: false,
-                        visualDensity: VisualDensity.compact,
-                      ),
+                  Text(
+                    'Transactions',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.displayFont(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.n800),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final (label, type) in const [('All', null), ('Earned', 'earn'), ('Bonus', 'bonus')])
+                          ChoiceChip(
+                            key: Key('rewards-filter-${type ?? 'all'}'),
+                            label: Text(label),
+                            selected: _typeFilter == type,
+                            onSelected: (_) => setState(() => _typeFilter = type),
+                            selectedColor: AppColors.green500,
+                            labelStyle: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: _typeFilter == type ? Colors.white : AppColors.n700),
+                            showCheckmark: false,
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                      ],
                     ),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             if (shown.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -201,7 +226,7 @@ class _WalletFigure extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700))),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700))),
         const SizedBox(height: 2),
         FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900))),
       ],
@@ -229,21 +254,22 @@ class _TransactionTile extends StatelessWidget {
     };
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(AppRadii.r12)),
-            child: Icon(icon, size: 18, color: transaction.isCredit ? AppColors.green600 : AppColors.red),
+            child: Icon(icon, size: 16, color: transaction.isCredit ? AppColors.green600 : AppColors.red),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(_typeLabel(transaction.type), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.n800)),
+                Text(_typeLabel(transaction.type), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.n800)),
                 const SizedBox(height: 2),
                 Text(
                   [
@@ -251,12 +277,20 @@ class _TransactionTile extends StatelessWidget {
                     if (transaction.note != null && transaction.note!.isNotEmpty) transaction.note!,
                     if (transaction.transactedAt != null) transaction.transactedAt!.split('T').first,
                   ].join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 11, color: AppColors.n500),
                 ),
               ],
             ),
           ),
-          Text('$sign RM ${transaction.amount.toStringAsFixed(2)}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: amountColor)),
+          const SizedBox(width: 8),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('$sign RM ${transaction.amount.toStringAsFixed(2)}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: amountColor)),
+            ),
+          ),
         ],
       ),
     );

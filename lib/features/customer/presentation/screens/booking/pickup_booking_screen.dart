@@ -41,6 +41,8 @@ class PickupBookingScreen extends StatefulWidget {
     this.prefillQuantities,
     this.prefillScanLogId,
     this.prefillImageUrl,
+    this.prefillScanLogIds,
+    this.initialStep = 0,
   });
 
   /// Called once, right before returning to the Pickups tab after a
@@ -66,14 +68,33 @@ class PickupBookingScreen extends StatefulWidget {
   final int? prefillScanLogId;
   final String? prefillImageUrl;
 
+  /// Part C — multi-image scan hand-off: every scan log id from a
+  /// multi-image session. Takes priority over [prefillScanLogId] (see
+  /// `PickupBookingProvider`'s constructor docblock).
+  final List<int>? prefillScanLogIds;
+
+  /// Part A/C — the step this screen opens on. The scan-first entry point
+  /// passes 1 (Pickup Address) once items are already confirmed by scanning,
+  /// so the user isn't asked to re-select items they just scanned; manual
+  /// booking (no prefill) always starts at the default, 0 (Select Items).
+  /// Back navigation still reaches step 0 normally (see [_back]), so the
+  /// prefilled items remain visible and editable, never skipped for good.
+  final int initialStep;
+
   @override
   State<PickupBookingScreen> createState() => _PickupBookingScreenState();
 }
 
 class _PickupBookingScreenState extends State<PickupBookingScreen> {
-  int _step = 0;
+  late int _step;
 
   static const _titles = ['Select Items', 'Pickup Address', 'Recycling Centre', 'Schedule Pickup', 'Review & Submit'];
+
+  @override
+  void initState() {
+    super.initState();
+    _step = widget.initialStep.clamp(0, 4);
+  }
 
   void _goToStep(int step) => setState(() => _step = step.clamp(0, 4));
 
@@ -100,6 +121,7 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
             prefillQuantities: widget.prefillQuantities,
             prefillScanLogId: widget.prefillScanLogId,
             prefillImageUrl: widget.prefillImageUrl,
+            prefillScanLogIds: widget.prefillScanLogIds,
           ),
         ),
         ChangeNotifierProvider(create: (context) => ItemCatalogueProvider(context.read<CustomerCatalogueRepository>())),

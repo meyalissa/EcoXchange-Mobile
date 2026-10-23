@@ -8,6 +8,7 @@ import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/eco_card.dart';
 import '../../../../core/widgets/eco_hero_header.dart';
 import '../../../../core/widgets/gradient_header.dart';
+import '../../../../core/widgets/profile_avatar.dart';
 import '../../../auth/presentation/auth_provider.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/item.dart';
@@ -16,6 +17,7 @@ import '../providers/dashboard_provider.dart';
 import '../providers/item_catalogue_provider.dart';
 import '../providers/reward_provider.dart';
 import '../widgets/pickup_status_style.dart';
+import 'community_impact_screen.dart';
 import 'item_detail_screen.dart';
 import 'pickup_detail_screen.dart';
 
@@ -91,7 +93,9 @@ class _HomeContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Nullable: the frame between logout() and the router swapping screens.
-    final userName = context.watch<AuthProvider>().user?.name ?? '';
+    final user = context.watch<AuthProvider>().user;
+    final userName = user?.name ?? '';
+    final userPhotoUrl = user?.profilePhotoUrl;
     final rewardBalance = context.watch<RewardProvider>().balance;
     final items = context.watch<ItemCatalogueProvider>().items;
 
@@ -102,7 +106,7 @@ class _HomeContent extends StatelessWidget {
         // ── Greeting + wallet ──────────────────────────────────────────────
         GradientHeader(
           gradient: AppColors.homeHeroGradient,
-          padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -112,40 +116,43 @@ class _HomeContent extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('${_greeting()} 👋', style: const TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600)),
+                        Text('${_greeting()} 👋', style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 2),
-                        Text(userName, style: AppTheme.headerIdentityName()),
+                        Text(userName, style: AppTheme.headerIdentityName(fontSize: 19), maxLines: 1, overflow: TextOverflow.ellipsis),
                       ],
                     ),
                   ),
-                  _Avatar(name: userName),
+                  const SizedBox(width: 10),
+                  ProfileAvatar(initials: initialOf(userName), photoUrl: userPhotoUrl, size: 52, borderWidth: 2.5),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
               Container(
                 key: const Key('home-wallet'),
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(AppRadii.r24),
+                  borderRadius: BorderRadius.circular(AppRadii.r20),
                   border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('ECOXCHANGE WALLET', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
-                    const SizedBox(height: 8),
+                    const Text('ECOXCHANGE WALLET', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                    const SizedBox(height: 5),
                     Text(
                       rewardBalance != null ? 'RM ${rewardBalance.toStringAsFixed(2)}' : '—',
-                      style: AppTheme.displayFont(fontSize: 38, fontWeight: FontWeight.w900, color: Colors.white),
+                      style: AppTheme.displayFont(fontSize: 29, fontWeight: FontWeight.w900, color: Colors.white),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const Text('Current Balance', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                    const SizedBox(height: 16),
+                    const Text('Current Balance', style: TextStyle(color: Colors.white70, fontSize: 12.5)),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Flexible(child: _WalletStat(label: 'LIFETIME EARNED', value: 'RM ${data.totalRewardsEarned.toStringAsFixed(2)}')),
-                        Container(width: 1, height: 34, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 18)),
+                        Container(width: 1, height: 30, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 14)),
                         Flexible(child: _WalletStat(label: 'WEIGHT RECYCLED', value: '${_kg(data.totalWeightKg)} kg')),
                       ],
                     ),
@@ -156,24 +163,30 @@ class _HomeContent extends StatelessWidget {
           ),
         ),
 
-        // ── Your impact this month ─────────────────────────────────────────
+        // ── Your impact this month (+ Community Impact entry point) ───────
         if (data.monthlyWeightKg != null && data.monthlyCompletedPickups != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-            child: _ImpactCard(weightKg: data.monthlyWeightKg!, pickups: data.monthlyCompletedPickups!),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: _ImpactCard(
+              weightKg: data.monthlyWeightKg!,
+              pickups: data.monthlyCompletedPickups!,
+              onViewCommunityImpact: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CommunityImpactScreen()),
+              ),
+            ),
           ),
 
         // ── Active pickup ──────────────────────────────────────────────────
         if (data.activePickup != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: ActivePickupBanner(pickup: data.activePickup!),
           ),
 
         // ── Recyclable items ───────────────────────────────────────────────
         if (items.isNotEmpty) ...[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
             child: SectionTitleRow(title: 'Recyclable Items', actionLabel: 'See All', onAction: onSeeAllItems),
           ),
           SizedBox(
@@ -193,34 +206,6 @@ class _HomeContent extends StatelessWidget {
   }
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Container(
-          width: 64,
-          height: 64,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.15),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 3),
-          ),
-          child: Text(
-            name.isNotEmpty ? name[0].toUpperCase() : '?',
-            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _WalletStat extends StatelessWidget {
   const _WalletStat({required this.label, required this.value});
 
@@ -234,33 +219,38 @@ class _WalletStat extends StatelessWidget {
       children: [
         FittedBox(
           fit: BoxFit.scaleDown,
-          child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+          child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 2),
         FittedBox(
           fit: BoxFit.scaleDown,
-          child: Text(value, style: AppTheme.displayFont(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
+          child: Text(value, style: AppTheme.displayFont(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.white)),
         ),
       ],
     );
   }
 }
 
-/// "Your Impact This Month" — only the two real monthly figures.
+/// "Your Impact This Month" — the two real monthly figures, plus a subtle
+/// link into the separate, aggregate Community Impact screen. Only that
+/// link row is tappable (an [InkWell] scoped to itself) — the card as a
+/// whole has no `onTap`, so it can never swallow or conflict with any
+/// other interactive element added to it later.
 class _ImpactCard extends StatelessWidget {
-  const _ImpactCard({required this.weightKg, required this.pickups});
+  const _ImpactCard({required this.weightKg, required this.pickups, required this.onViewCommunityImpact});
 
   final double weightKg;
   final int pickups;
+  final VoidCallback onViewCommunityImpact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       key: const Key('home-impact'),
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF2D4422), AppColors.green700]),
-        borderRadius: BorderRadius.circular(AppRadii.r24),
+        borderRadius: BorderRadius.circular(AppRadii.r20),
         boxShadow: AppShadows.sh2,
       ),
       child: Column(
@@ -269,19 +259,19 @@ class _ImpactCard extends StatelessWidget {
           Row(
             children: [
               const Expanded(
-                child: Text('YOUR IMPACT THIS MONTH', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
+                child: Text('YOUR IMPACT THIS MONTH', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
               ),
-              const Text('🌱', style: TextStyle(fontSize: 30)),
+              const Text('🌱', style: TextStyle(fontSize: 22)),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text.rich(
             TextSpan(
               // Body copy, not a heading -- Sora/displayFont is reserved for
               // large display numbers/headings (see AppTheme's docblock);
               // this one-line sentence was borrowing that display weight
               // and reading oversized for its role (Typography Polish pass).
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, height: 1.3),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, height: 1.25),
               children: weightKg > 0
                   ? [
                       const TextSpan(text: 'You recycled '),
@@ -291,13 +281,44 @@ class _ImpactCard extends StatelessWidget {
                   : [const TextSpan(text: 'No completed pickups yet this month')],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           Row(
             children: [
               Flexible(child: _ImpactStat(value: _kg(weightKg), label: 'kg Recycled')),
-              const SizedBox(width: 28),
+              const SizedBox(width: 24),
               Flexible(child: _ImpactStat(value: '$pickups', label: 'Pickups Done')),
             ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            // FittedBox, matching _WalletStat/_ImpactStat's own guard
+            // above: a long name/locale could still make this link's
+            // natural width exceed a very narrow screen's remaining
+            // space, so it scales down as a last resort rather than
+            // ever overflowing the card.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  key: const Key('home-view-community-impact'),
+                  onTap: onViewCommunityImpact,
+                  borderRadius: BorderRadius.circular(AppRadii.r8),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('View Community Impact', style: TextStyle(color: AppColors.green200, fontSize: 11.5, fontWeight: FontWeight.w700)),
+                        SizedBox(width: 4),
+                        Icon(Icons.arrow_forward, size: 12, color: AppColors.green200),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -316,8 +337,8 @@ class _ImpactStat extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: AppTheme.displayFont(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.green200))),
-        FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: AppTheme.displayFont(fontSize: 19, fontWeight: FontWeight.w900, color: AppColors.green200))),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600))),
       ],
     );
   }
@@ -347,34 +368,34 @@ class ActivePickupBanner extends StatelessWidget {
       key: const Key('active-pickup'),
       onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PickupDetailScreen(pickupId: pickup.id))),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           gradient: onDark ? null : const LinearGradient(colors: [AppColors.goldLight, Color(0xFFFDE68A)]),
           color: onDark ? Colors.white.withValues(alpha: 0.14) : null,
-          borderRadius: BorderRadius.circular(AppRadii.r20),
+          borderRadius: BorderRadius.circular(AppRadii.r16),
           border: Border.all(color: onDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFF5D080), width: 1.5),
         ),
         child: Row(
           children: [
             Container(
-              width: 50,
-              height: 50,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(color: AppColors.gold, borderRadius: BorderRadius.circular(AppRadii.r12)),
-              child: const Icon(Icons.access_time, color: Colors.white, size: 26),
+              child: const Icon(Icons.access_time, color: Colors.white, size: 22),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     onDark ? '${pickup.reference} · Active' : 'Active Pickup',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: onDark ? Colors.white : const Color(0xFF7B4F00)),
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: onDark ? Colors.white : const Color(0xFF7B4F00)),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     onDark ? [if (riderName != null) 'Rider $riderName', style.label].join(' · ') : subtitle,
-                    style: TextStyle(fontSize: 13, color: onDark ? Colors.white70 : const Color(0xFF9B6800)),
+                    style: TextStyle(fontSize: 12, color: onDark ? Colors.white70 : const Color(0xFF9B6800)),
                   ),
                 ],
               ),

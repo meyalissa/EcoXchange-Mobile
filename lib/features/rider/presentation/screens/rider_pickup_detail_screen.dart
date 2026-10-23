@@ -185,7 +185,9 @@ class _DetailContent extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              if (pickup.pickupDate != null)
+              if (pickup.isPickupNow)
+                const _InfoRow(icon: Icons.bolt_outlined, text: 'Pickup Now')
+              else if (pickup.pickupDate != null)
                 _InfoRow(icon: Icons.event_outlined, text: [pickup.pickupDate, pickup.pickupTime].whereType<String>().join(' · ')),
               if (weight != null)
                 _InfoRow(

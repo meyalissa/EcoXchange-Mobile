@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -27,15 +25,29 @@ import 'pickup_booking_provider.dart';
 /// an explicit prefill, exactly the same real item-selection path manual
 /// booking already uses (see booking_items_step.dart's `setQuantity`).
 ///
-/// Two analysis paths, both on the same uploaded photo:
-///   * [submit] — the live single-object classifier ([AIScanRepository],
-///     default [ClassifierScanRepository]), unchanged.
-///   * [submitMultiObject] — the EXPERIMENTAL multi-object detector
-///     ([AIDetectionRepository], default [DetectionScanRepository]:
-///     `POST /customer/pickup/detect`). The server stores that result, so
-///     [resumePendingDetection] can read it back (`GET .../detect/{scanLog}`)
-///     after the screen is recreated or the app restarts, without running the
-///     AI again.
+/// ONE unified action, [submit] (Part B of the overnight task): tries the
+/// object-counting detector first ([AIDetectionRepository], default
+/// [DetectionScanRepository]: `POST /customer/pickup/detect`) — it is the
+/// more general of the two real pipelines, since it ALSO classifies each
+/// found object's material via the same EfficientNet-B0 model the plain
+/// classifier uses. When detection finds nothing countable in this photo,
+/// or the detector specifically is unavailable/can't read the image, this
+/// falls back to the plain whole-photo classifier ([AIScanRepository],
+/// default [ClassifierScanRepository]: `POST /customer/pickup/classify`)
+/// on the SAME already-uploaded `scan_log_id` — never a second upload,
+/// never a duplicate `ScanLog` row (confirmed server-side: both endpoints
+/// key off the one `scan_log_id` and write to disjoint columns — see
+/// `PickupDetectionController`'s docblock). [fallbackNote] explains
+/// WHICH of those two things happened, honestly, whenever it did.
+///
+/// [submitMultiObject] (detector only, no fallback) remains a separate,
+/// directly-callable primitive that [submit] does not call internally
+/// (each does its own upload — calling both back-to-back would be the
+/// double-upload this design explicitly avoids) — kept because it is
+/// still real, working functionality worth testing/reusing in isolation,
+/// even though no button calls it directly anymore (see
+/// `ScanClassifyScreen`'s docblock).
+///
 /// In multi-object mode the provider holds the AI-SUGGESTED quantity per
 /// resolved item plus the user's corrections and manually added items; a
 /// correction is kept until the user resets it or scans again.
@@ -59,7 +71,14 @@ class AIScanProvider extends ChangeNotifier {
   final AIDetectionRepository _detectionRepository;
   final PendingDetectionStore _pendingStore;
 
-  File? _pickedImage;
+  /// Raw bytes of the picked photo, not a [File]/path — `dart:io.File` and
+  /// `Image.file` are not supported on Flutter Web (`XFile.path` there is a
+  /// blob URL, and `Image.file` asserts outright). `XFile.readAsBytes()` and
+  /// `Image.memory()` both work identically on every platform, so this is
+  /// the one representation the whole provider/UI/upload pipeline uses,
+  /// with no platform branching anywhere.
+  Uint8List? _pickedImageBytes;
+  String _pickedImageName = 'photo.jpg';
   bool _isSubmitting = false;
   bool _isMultiObjectRequest = false;
   bool _isRestoring = false;
@@ -73,12 +92,23 @@ class AIScanProvider extends ChangeNotifier {
   double? _unsupportedConfidence;
 
   ItemModel? _confirmedItem;
+  String? _fallbackNote;
 
-  File? get pickedImage => _pickedImage;
+  Uint8List? get pickedImageBytes => _pickedImageBytes;
   bool get isSubmitting => _isSubmitting;
 
-  /// True while [submitMultiObject] is the request in flight (loading copy).
+  /// True while the detector specifically is the request in flight (loading
+  /// copy) — i.e. always true at the start of [submit], and for the rest of
+  /// it only if detection actually found something countable.
   bool get isMultiObjectRequest => _isMultiObjectRequest;
+
+  /// Set by [submit] only when it fell back to the plain classifier instead
+  /// of showing a multi-object result — either because detection genuinely
+  /// found nothing countable in this photo, or because the detector itself
+  /// was unavailable/couldn't read the image. Null whenever a multi-object
+  /// result IS shown, or there's no result yet. A real, honest explanation
+  /// of what happened — never silently hidden.
+  String? get fallbackNote => _fallbackNote;
 
   /// True while a stored multi-object result is being read back.
   bool get isRestoring => _isRestoring;
@@ -124,7 +154,21 @@ class AIScanProvider extends ChangeNotifier {
     }
     if (file == null) return;
 
-    _pickedImage = File(file.path);
+    final Uint8List bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      // The platform handed back a file reference it then couldn't read
+      // (corrupted/unsupported file, revoked permission, etc.) — a real,
+      // honest failure shown to the user, never a crash and never silently
+      // treated as "nothing picked".
+      _error = const ValidationException('Could not read the selected photo. Please choose a different image.', {});
+      notifyListeners();
+      return;
+    }
+
+    _pickedImageBytes = bytes;
+    _pickedImageName = file.name.isNotEmpty ? file.name : 'photo.jpg';
     _scanResult = null;
     _isRestoredResult = false;
     _quantityCorrections.clear();
@@ -133,12 +177,13 @@ class AIScanProvider extends ChangeNotifier {
     _unsupportedAiLabel = null;
     _unsupportedConfidence = null;
     _confirmedItem = null;
+    _fallbackNote = null;
     _error = null;
     notifyListeners();
   }
 
   void clearPickedImage() {
-    _pickedImage = null;
+    _pickedImageBytes = null;
     notifyListeners();
   }
 
@@ -149,30 +194,78 @@ class AIScanProvider extends ChangeNotifier {
   /// without touching production call sites — [pickImage] itself is
   /// exercised for real in Stage 4.7's interactive verification instead.
   @visibleForTesting
-  void debugSetPickedImage(File file) {
-    _pickedImage = file;
+  void debugSetPickedImage(Uint8List bytes, {String filename = 'photo.jpg'}) {
+    _pickedImageBytes = bytes;
+    _pickedImageName = filename;
     notifyListeners();
   }
 
-  /// Uploads the picked image, then runs the REAL classification. Every
-  /// branch is real: success -> [result] holds the model's actual
-  /// prediction + the real matched item; `AI_LABEL_UNSUPPORTED` ->
-  /// [unsupportedAiLabel]/[unsupportedConfidence] hold exactly what the
-  /// model said, with no matching item guessed; any other failure ->
-  /// [error], and nothing is fabricated.
+  /// Unified AI Scan & Classify action — see the class docblock for the
+  /// full detect-then-maybe-fall-back-to-classify design. Uploads ONCE,
+  /// then:
+  ///   1. tries the detector ([_detectionRepository]) on that one
+  ///      `scan_log_id`;
+  ///   2. if it finds ≥1 object, that multi-object result IS the result;
+  ///   3. otherwise (zero objects, or the detector itself failed in a
+  ///      recoverable way) falls back to the plain classifier
+  ///      ([_scanRepository]) on the SAME `scan_log_id` — no re-upload.
+  /// Every branch is a REAL server response; nothing is fabricated on any
+  /// failure. `AI_LABEL_UNSUPPORTED` (from the classify fallback, or from
+  /// an injected classify-only [_scanRepository] in tests) still surfaces
+  /// honestly via [unsupportedAiLabel]/[unsupportedConfidence]. [isSubmitting]
+  /// guards against a second concurrent tap for the whole operation.
   Future<void> submit() async {
-    final image = _pickedImage;
-    if (image == null || _isSubmitting) return;
+    final bytes = _pickedImageBytes;
+    if (bytes == null || _isSubmitting) return;
 
     _isSubmitting = true;
-    _isMultiObjectRequest = false;
+    _isMultiObjectRequest = true; // detection is attempted first
     _error = null;
+    _fallbackNote = null;
     notifyListeners();
 
     try {
-      final upload = await _repository.uploadImage(image.path);
+      final upload = await _repository.uploadImage(bytes, _pickedImageName);
       _uploadedImageUrl = upload.imageUrl;
-      _scanResult = await _scanRepository.analyse(upload.scanLogId);
+      final scanLogId = upload.scanLogId;
+      await _safely(() => _pendingStore.save(PendingDetection(scanLogId: scanLogId, imageUrl: upload.imageUrl)));
+
+      AIScanResult? detection;
+      try {
+        detection = await _detectionRepository.analyse(scanLogId);
+      } on ServerException catch (e) {
+        // The detector specifically being unavailable (503) or erroring
+        // unexpectedly is a real, recoverable reason to fall back to plain
+        // classification on the same photo — never silently hidden, see
+        // [fallbackNote]. A network/timeout/auth failure is NOT caught
+        // here: it would almost certainly break the classify() fallback
+        // identically, so it propagates to the outer catch below instead
+        // of masking a connectivity problem as an "AI limitation".
+        _fallbackNote = e.statusCode == 503
+            ? aiUnavailableMessage
+            : 'Multi-item counting hit an unexpected error, so we classified the whole photo instead.';
+      } on BusinessRuleException catch (e) {
+        if (e.code == 'AI_INVALID_IMAGE' || e.code == 'IMAGE_UNREADABLE') {
+          _fallbackNote = 'Multi-item counting could not read this photo, so we classified the whole photo instead.';
+        } else {
+          rethrow; // e.g. IMAGE_INVALID -- a real failure shared by both pipelines, not an "unavailable detector"
+        }
+      }
+
+      if (detection != null && detection.detections.isNotEmpty) {
+        _scanResult = detection;
+        _isMultiObjectRequest = true;
+      } else {
+        if (detection != null) {
+          // A genuine, successful detector run that just found nothing
+          // countable in THIS photo -- not a failure, not hidden.
+          _fallbackNote = 'No countable bottles were detected, so we classified the whole photo instead.';
+        }
+        await _safely(_pendingStore.clear); // nothing multi-object to resume; avoid restoring a stale/irrelevant result later
+        _isMultiObjectRequest = false;
+        _scanResult = await _scanRepository.analyse(scanLogId);
+      }
+
       _isRestoredResult = false;
       _quantityCorrections.clear();
       _manualItems.clear();
@@ -201,8 +294,8 @@ class AIScanProvider extends ChangeNotifier {
   /// [resumePendingDetection]. Failures leave no result: a 503 becomes
   /// [aiUnavailableMessage]; everything else keeps the real server message.
   Future<void> submitMultiObject() async {
-    final image = _pickedImage;
-    if (image == null || _isSubmitting) return;
+    final bytes = _pickedImageBytes;
+    if (bytes == null || _isSubmitting) return;
 
     _isSubmitting = true;
     _isMultiObjectRequest = true;
@@ -210,7 +303,7 @@ class AIScanProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final upload = await _repository.uploadImage(image.path);
+      final upload = await _repository.uploadImage(bytes, _pickedImageName);
       _uploadedImageUrl = upload.imageUrl;
       await _safely(() => _pendingStore.save(PendingDetection(scanLogId: upload.scanLogId, imageUrl: upload.imageUrl)));
       _scanResult = await _detectionRepository.analyse(upload.scanLogId);
@@ -236,7 +329,7 @@ class AIScanProvider extends ChangeNotifier {
   /// `IMAGE_INVALID` because it was used by a pickup / isn't this user's) is
   /// forgotten quietly; any other failure keeps it for a later attempt.
   Future<void> resumePendingDetection() async {
-    if (_scanResult != null || _isSubmitting || _isRestoring || _pickedImage != null) return;
+    if (_scanResult != null || _isSubmitting || _isRestoring || _pickedImageBytes != null) return;
 
     final pending = await _safely(_pendingStore.read);
     if (pending == null) return;
@@ -246,7 +339,7 @@ class AIScanProvider extends ChangeNotifier {
 
     try {
       final result = await _detectionRepository.restore(pending.scanLogId);
-      if (_scanResult == null && _pickedImage == null) {
+      if (_scanResult == null && _pickedImageBytes == null) {
         _scanResult = result;
         _uploadedImageUrl = pending.imageUrl;
         _isRestoredResult = true;
@@ -264,6 +357,16 @@ class AIScanProvider extends ChangeNotifier {
   }
 
   void _forgetPendingDetection() => _safely(_pendingStore.clear);
+
+  /// Marks this scan as no longer "unfinished" once its result has actually
+  /// been handed off (confirmed and added to a round, or sent to booking) —
+  /// called right before that hand-off. Without this, [resumePendingDetection]
+  /// on a LATER, brand-new scan (e.g. "Add Another Photo" opening a fresh
+  /// `ScanClassifyScreen`/`AIScanProvider`) would read this already-finished
+  /// scan back from device storage and silently show it again instead of an
+  /// empty picker — a real bug this fixes (see `ScanClassifyScreen`'s
+  /// `_continueToBooking`/`_continueWithReviewedQuantities`).
+  void forgetConfirmedScan() => _forgetPendingDetection();
 
   /// Device storage is a convenience only — a storage failure must never
   /// break scanning.
@@ -303,13 +406,19 @@ class AIScanProvider extends ChangeNotifier {
 
   bool isManuallyAdded(int itemId) => _manualItems.containsKey(itemId);
 
-  /// Adds a real catalogue item picked by the user to the multi-object
-  /// review (quantity +1). An item the AI already suggested is incremented
-  /// instead of duplicated.
-  void addManualItem(ItemModel item) {
+  /// Adds a real catalogue item picked by the user to the current
+  /// confirmation (default +1, or a caller-chosen [quantity] from the
+  /// "Add an Item Manually" quantity picker). An item already present —
+  /// whether AI-suggested or already manually added — is MERGED (its
+  /// quantity increased) rather than duplicated as a second row, in either
+  /// single- or multi-object mode (both key off the same `_scanResult?.lines`
+  /// + `_manualItems` + quantity maps, so there is only ever one tracking
+  /// path, never a parallel one per mode).
+  void addManualItem(ItemModel item, {int quantity = 1}) {
+    assert(quantity > 0);
     final aiSuggested = _scanResult?.lines.any((l) => l.item!.id == item.id) ?? false;
     if (!aiSuggested) _manualItems.putIfAbsent(item.id, () => item);
-    setQuantity(item.id, quantityOf(item.id) + 1);
+    setQuantity(item.id, quantityOf(item.id) + quantity);
   }
 
   /// The quantity that will be booked: the user's correction if any,
@@ -354,15 +463,22 @@ class AIScanProvider extends ChangeNotifier {
   /// and picked a real, active item from the catalogue themselves — never
   /// a hardcoded/invented item, always whatever [ItemCatalogueProvider]'s
   /// real API-backed list actually contains.
-  void confirmManualItem(ItemModel item) {
+  ///
+  /// Unlike [confirmAiResult] (whose item already has an AI-suggested line
+  /// in `_scanResult.lines`, so [quantityOf] already resolves it), this
+  /// item has no such line — so it's registered through [addManualItem],
+  /// the exact same tracking "Add an Item Manually" uses, ensuring
+  /// [reviewedQuantities] includes it and a later "Add an Item Manually"
+  /// pick of this SAME item merges into it instead of double-counting.
+  void confirmManualItem(ItemModel item, {int quantity = 1}) {
     _confirmedItem = item;
-    notifyListeners();
+    addManualItem(item, quantity: quantity);
   }
 
   /// "Scan another photo": clears everything, including the remembered
   /// unfinished multi-object scan (so it is not restored next time).
   void reset() {
-    _pickedImage = null;
+    _pickedImageBytes = null;
     _isSubmitting = false;
     _isMultiObjectRequest = false;
     _isRestoredResult = false;
@@ -374,6 +490,7 @@ class AIScanProvider extends ChangeNotifier {
     _unsupportedAiLabel = null;
     _unsupportedConfidence = null;
     _confirmedItem = null;
+    _fallbackNote = null;
     _uploadedImageUrl = null;
     notifyListeners();
   }

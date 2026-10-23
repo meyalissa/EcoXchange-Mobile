@@ -54,10 +54,12 @@ class PickupSummaryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(pickup.reference, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.n800)),
-                    if (pickup.pickupDate != null) ...[
+                    if (pickup.isPickupNow || pickup.pickupDate != null) ...[
                       const SizedBox(height: 1),
                       Text(
-                        [pickup.pickupDate, pickup.pickupTime].whereType<String>().join(' · '),
+                        pickup.isPickupNow
+                            ? 'Pickup Now'
+                            : [pickup.pickupDate, pickup.pickupTime].whereType<String>().join(' · '),
                         style: const TextStyle(fontSize: 11, color: AppColors.n500),
                       ),
                     ],

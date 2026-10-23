@@ -9,6 +9,7 @@ import '../../../../core/widgets/eco_button.dart';
 import '../../../../core/widgets/gradient_header.dart';
 import '../../../auth/presentation/auth_provider.dart';
 import '../../../auth/presentation/screens/edit_personal_info_screen.dart';
+import '../../../settings/presentation/screens/server_settings_screen.dart';
 import '../../data/models/rider_profile.dart';
 import '../providers/rider_profile_provider.dart';
 import 'rider_dashboard_screen.dart' show initialsOf;
@@ -265,6 +266,13 @@ class _ProfileContent extends StatelessWidget {
                 ('Coverage zone', profile.coverageZone),
                 ('Working radius', profile.workingRadiusKm == null ? null : '${profile.workingRadiusKm!.toStringAsFixed(1)} km'),
               ]),
+            ),
+            _MenuRow(
+              key: const Key('rider-profile-server-connection'),
+              icon: Icons.dns_outlined,
+              title: 'Server Connection',
+              subtitle: 'Change the EcoXchange server address',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ServerSettingsScreen())),
             ),
           ],
         ),

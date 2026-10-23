@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -174,7 +172,7 @@ class _AvatarPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pickedPath = provider.pickedImagePath;
+    final pickedBytes = provider.pickedImageBytes;
     final photoUrl = provider.photoUrl;
 
     return Stack(
@@ -190,8 +188,12 @@ class _AvatarPicker extends StatelessWidget {
             color: AppColors.green50,
             border: Border.all(color: AppColors.green200, width: 2),
           ),
-          child: pickedPath != null
-              ? Image.file(File(pickedPath), fit: BoxFit.cover)
+          child: pickedBytes != null
+              ? Image.memory(
+                  pickedBytes,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, _, _) => const Icon(Icons.person, size: 48, color: AppColors.green400),
+                )
               : (photoUrl != null
                   ? AppNetworkImage(
                       url: photoUrl,

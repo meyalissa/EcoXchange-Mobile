@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,9 +8,8 @@ import '../../../../../core/widgets/app_network_image.dart';
 import '../../../../../core/widgets/eco_button.dart';
 import '../../../../../core/widgets/eco_card.dart';
 import '../../../data/models/ai_scan_result.dart';
-import '../../../data/models/item.dart';
 import '../../providers/ai_scan_provider.dart';
-import '../../widgets/quantity_stepper.dart';
+import '../../widgets/scan_quantity_line.dart';
 
 /// EcoXchange Mobile — review screen for an EXPERIMENTAL multi-object AI scan
 /// (`POST /customer/pickup/detect`, or its stored read-back).
@@ -24,18 +23,13 @@ import '../../widgets/quantity_stepper.dart';
 /// shown or computed here: the confirmed quantities go to the booking flow,
 /// where Laravel calculates both.
 class MultiObjectResultView extends StatelessWidget {
-  const MultiObjectResultView({
-    super.key,
-    required this.image,
-    this.imageUrl,
-    required this.onContinue,
-    required this.onChooseManually,
-    required this.onScanAnother,
-  });
+  const MultiObjectResultView({super.key, required this.imageBytes, this.imageUrl, required this.onContinue, required this.onChooseManually, required this.onScanAnother});
 
   /// The photo taken in this session; null for a restored result, which then
-  /// shows [imageUrl] (the server copy of the same upload).
-  final File? image;
+  /// shows [imageUrl] (the server copy of the same upload). Bytes, not a
+  /// file path — `Image.file`/`dart:io.File` are not supported on Flutter
+  /// Web (see scan_classify_screen.dart's `_ScanPhoto` docblock).
+  final Uint8List? imageBytes;
   final String? imageUrl;
   final VoidCallback onContinue;
 
@@ -49,135 +43,131 @@ class MultiObjectResultView extends StatelessWidget {
     final result = scan.scanResult!;
 
     if (result.detections.isEmpty) {
-      return _NoObjectsView(image: image, imageUrl: imageUrl, onChooseManually: onChooseManually, onScanAnother: onScanAnother);
+      return _NoObjectsView(imageBytes: imageBytes, imageUrl: imageUrl, onChooseManually: onChooseManually, onScanAnother: onScanAnother);
     }
 
     final counted = result.resolvedDetections.length;
     final review = result.reviewDetections.length;
     final total = scan.totalReviewedQuantity;
 
+    // Task 2 — standardized bottom actions: same split as the single-object
+    // _ConfirmedView — scrollable content ends with "Add an Item Manually"
+    // (right after the confirm-quantities list), and Continue/Scan Another
+    // Photo live in their own fixed bottom action area, the same bordered-
+    // container pattern MultiImageScanScreen's bottom bar already uses.
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (scan.isRestoredResult) ...[
-          const _Notice(
-            key: Key('ai-restored-notice'),
-            icon: Icons.history,
-            text: 'Showing your last scan, saved on EcoXchange. The AI was not run again.',
+        Expanded(
+          child: SingleChildScrollView(
+            child: _ScrollableContent(scan: scan, result: result, imageBytes: imageBytes, imageUrl: imageUrl, counted: counted, review: review, onChooseManually: onChooseManually),
           ),
-          const SizedBox(height: 12),
-        ],
-        _DetectionImage(image: image, imageUrl: imageUrl, result: result),
-        const SizedBox(height: 16),
-        EcoCard(
+        ),
+        Container(
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
+          decoration: const BoxDecoration(
+            color: AppColors.n0,
+            border: Border(top: BorderSide(color: AppColors.n100)),
+          ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  const _Pill(label: 'AI DETECTED OBJECTS'),
-                  const Spacer(),
+              EcoButton(key: const Key('ai-multi-continue'), label: total > 0 ? 'Continue with $total item${total == 1 ? '' : 's'}' : 'Set at least 1 item', icon: Icons.local_shipping_outlined, fullWidth: true, pill: true, onPressed: total > 0 ? onContinue : null),
+              const SizedBox(height: 10),
+              EcoButton(label: 'Scan Another Photo', variant: EcoButtonVariant.outline, fullWidth: true, pill: true, onPressed: onScanAnother),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScrollableContent extends StatelessWidget {
+  const _ScrollableContent({required this.scan, required this.result, required this.imageBytes, required this.imageUrl, required this.counted, required this.review, required this.onChooseManually});
+
+  final AIScanProvider scan;
+  final AIScanResult result;
+  final Uint8List? imageBytes;
+  final String? imageUrl;
+  final int counted;
+  final int review;
+  final VoidCallback onChooseManually;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (scan.isRestoredResult) ...[const _Notice(key: Key('ai-restored-notice'), icon: Icons.history, text: 'Showing your last scan, saved on EcoXchange. The AI was not run again.'), const SizedBox(height: 12)],
+          _DetectionImage(imageBytes: imageBytes, imageUrl: imageUrl, result: result),
+          const SizedBox(height: 16),
+          EcoCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const _Pill(label: 'AI DETECTED OBJECTS'),
+                    const Spacer(),
+                    Text(
+                      'Detected: ${result.totalDetected} object${result.totalDetected == 1 ? '' : 's'}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.n500),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                for (final detection in result.detections) ...[if (detection != result.detections.first) const Divider(height: 1, color: AppColors.n100), _DetectionRow(detection: detection)],
+                if (review > 0) ...[
+                  const SizedBox(height: 8),
                   Text(
-                    'Detected: ${result.totalDetected} object${result.totalDetected == 1 ? '' : 's'}',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.n500),
+                    '$counted counted · $review need${review == 1 ? 's' : ''} manual review',
+                    key: const Key('ai-review-count'),
+                    style: const TextStyle(fontSize: 12, color: AppColors.n500),
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              for (final detection in result.detections) ...[
-                if (detection != result.detections.first) const Divider(height: 1, color: AppColors.n100),
-                _DetectionRow(detection: detection),
               ],
-              if (review > 0) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '$counted counted · $review need${review == 1 ? 's' : ''} manual review',
-                  key: const Key('ai-review-count'),
-                  style: const TextStyle(fontSize: 12, color: AppColors.n500),
-                ),
-              ],
-            ],
+            ),
           ),
-        ),
-        if (result.needsManualReview) ...[
+          if (result.needsManualReview) ...[const SizedBox(height: 12), const _Notice(key: Key('ai-manual-review-notice'), icon: Icons.rate_review_outlined, text: 'Some objects need your review. They are not counted — add the correct item yourself if needed.', warning: true)],
           const SizedBox(height: 12),
-          const _Notice(
-            key: Key('ai-manual-review-notice'),
-            icon: Icons.rate_review_outlined,
-            text: 'Some objects need your review. They are not counted — add the correct item yourself if needed.',
-            warning: true,
-          ),
-        ],
-        const SizedBox(height: 12),
-        EcoCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Confirm quantities', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800)),
-              const SizedBox(height: 4),
-              const Text(
-                'Counted from your photo by AI — a suggestion, not a guarantee. Check each number and correct it if needed.',
-                style: TextStyle(fontSize: 12, color: AppColors.n500, height: 1.4),
-              ),
-              if (result.lines.isEmpty && scan.manualItems.isEmpty) ...[
-                const SizedBox(height: 12),
+          EcoCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 const Text(
-                  'None of the detected objects could be counted as a supported item.',
-                  style: TextStyle(fontSize: 13, color: AppColors.n600),
+                  'Confirm quantities',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800),
                 ),
+                const SizedBox(height: 4),
+                const Text('Counted from your photo by AI — a suggestion, not a guarantee. Check each number and correct it if needed.', style: TextStyle(fontSize: 12, color: AppColors.n500, height: 1.4)),
+                if (result.lines.isEmpty && scan.manualItems.isEmpty) ...[const SizedBox(height: 12), const Text('None of the detected objects could be counted as a supported item.', style: TextStyle(fontSize: 13, color: AppColors.n600))],
+                for (final line in result.lines) ...[const SizedBox(height: 10), const Divider(height: 1, color: AppColors.n100), const SizedBox(height: 10), ScanQuantityLine(item: line.item!)],
+                for (final item in scan.manualItems) ...[const SizedBox(height: 10), const Divider(height: 1, color: AppColors.n100), const SizedBox(height: 10), ScanQuantityLine(item: item)],
+                for (final material in result.unresolvedMaterials) ...[
+                  const SizedBox(height: 10),
+                  const Divider(height: 1, color: AppColors.n100),
+                  const SizedBox(height: 10),
+                  Text(
+                    '${_humanise(material.aiLabel)} × ${material.suggestedQuantity} — not available on EcoXchange, not counted',
+                    key: Key('ai-unresolved-${material.aiLabel}'),
+                    style: const TextStyle(fontSize: 12, color: AppColors.n500),
+                  ),
+                ],
               ],
-              for (final line in result.lines) ...[
-                const SizedBox(height: 10),
-                const Divider(height: 1, color: AppColors.n100),
-                const SizedBox(height: 10),
-                _QuantityLine(item: line.item!),
-              ],
-              for (final item in scan.manualItems) ...[
-                const SizedBox(height: 10),
-                const Divider(height: 1, color: AppColors.n100),
-                const SizedBox(height: 10),
-                _QuantityLine(item: item),
-              ],
-              for (final material in result.unresolvedMaterials) ...[
-                const SizedBox(height: 10),
-                const Divider(height: 1, color: AppColors.n100),
-                const SizedBox(height: 10),
-                Text(
-                  '${_humanise(material.aiLabel)} × ${material.suggestedQuantity} — not available on EcoXchange, not counted',
-                  key: Key('ai-unresolved-${material.aiLabel}'),
-                  style: const TextStyle(fontSize: 12, color: AppColors.n500),
-                ),
-              ],
-            ],
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        const Text(
-          'Final weight and reward are calculated by EcoXchange from the quantities you confirm.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: AppColors.n500, height: 1.4),
-        ),
-        const SizedBox(height: 16),
-        EcoButton(
-          key: const Key('ai-multi-continue'),
-          label: total > 0 ? 'Continue with $total item${total == 1 ? '' : 's'}' : 'Set at least 1 item',
-          icon: Icons.local_shipping_outlined,
-          fullWidth: true,
-          pill: true,
-          onPressed: total > 0 ? onContinue : null,
-        ),
-        const SizedBox(height: 10),
-        EcoButton(
-          key: const Key('ai-multi-add-item'),
-          label: 'Add an Item Manually',
-          variant: EcoButtonVariant.outline,
-          fullWidth: true,
-          pill: true,
-          onPressed: onChooseManually,
-        ),
-        const SizedBox(height: 10),
-        EcoButton(label: 'Scan Another Photo', variant: EcoButtonVariant.ghost, fullWidth: true, pill: true, onPressed: onScanAnother),
-      ],
+          const SizedBox(height: 10),
+          const Text(
+            'Final weight and reward are calculated by EcoXchange from the quantities you confirm.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: AppColors.n500, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          EcoButton(key: const Key('ai-multi-add-item'), label: 'Add an Item Manually', variant: EcoButtonVariant.outline, fullWidth: true, pill: true, onPressed: onChooseManually),
+        ],
+      ),
     );
   }
 }
@@ -208,7 +198,10 @@ class _Pill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(color: AppColors.green50, borderRadius: BorderRadius.circular(AppRadii.rFull)),
-      child: Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.green700)),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.green700),
+      ),
     );
   }
 }
@@ -225,15 +218,14 @@ class _Notice extends StatelessWidget {
     final fg = warning ? AppColors.n800 : AppColors.green700;
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: warning ? AppColors.goldLight : AppColors.green50,
-        borderRadius: BorderRadius.circular(AppRadii.r12),
-      ),
+      decoration: BoxDecoration(color: warning ? AppColors.goldLight : AppColors.green50, borderRadius: BorderRadius.circular(AppRadii.r12)),
       child: Row(
         children: [
           Icon(icon, size: 16, color: warning ? AppColors.gold : AppColors.green600),
           const SizedBox(width: 8),
-          Expanded(child: Text(text, style: TextStyle(fontSize: 12, color: fg, height: 1.4))),
+          Expanded(
+            child: Text(text, style: TextStyle(fontSize: 12, color: fg, height: 1.4)),
+          ),
         ],
       ),
     );
@@ -250,8 +242,7 @@ class _DetectionRow extends StatelessWidget {
     final resolved = detection.isResolved;
     // Material comes ONLY from the classifier; the generic detector label is
     // shown separately and never turned into a material.
-    final material = detection.item?.name ??
-        (detection.aiLabel != null ? _humanise(detection.aiLabel!) : 'Unclassified');
+    final material = detection.item?.name ?? (detection.aiLabel != null ? _humanise(detection.aiLabel!) : 'Unclassified');
 
     return Padding(
       key: Key('ai-detection-${detection.index}'),
@@ -274,19 +265,12 @@ class _DetectionRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Object ${detection.index} · detected as "${detection.detectorLabel}" (${_pct(detection.detectorConfidence)})',
-                  style: const TextStyle(fontSize: 11, color: AppColors.n500),
-                ),
+                Text('Object ${detection.index} · detected as "${detection.detectorLabel}" (${_pct(detection.detectorConfidence)})', style: const TextStyle(fontSize: 11, color: AppColors.n500)),
                 Text(
                   material,
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: resolved ? AppColors.n800 : AppColors.n500),
                 ),
-                if (detection.classificationConfidence != null)
-                  Text(
-                    'Material confidence: ${_pct(detection.classificationConfidence!)}',
-                    style: const TextStyle(fontSize: 11, color: AppColors.n500),
-                  ),
+                if (detection.classificationConfidence != null) Text('Material confidence: ${_pct(detection.classificationConfidence!)}', style: const TextStyle(fontSize: 11, color: AppColors.n500)),
                 if (!resolved)
                   Text(
                     _reviewReason(detection),
@@ -301,65 +285,20 @@ class _DetectionRow extends StatelessWidget {
   }
 }
 
-class _QuantityLine extends StatelessWidget {
-  const _QuantityLine({required this.item});
-
-  final ItemModel item;
-
-  @override
-  Widget build(BuildContext context) {
-    final scan = context.watch<AIScanProvider>();
-    final itemId = item.id;
-    final suggested = scan.suggestedQuantityOf(itemId);
-    final manual = scan.isManuallyAdded(itemId);
-    final corrected = scan.isQuantityCorrected(itemId);
-
-    return Column(
-      key: Key('ai-qty-$itemId'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(item.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.n800)),
-                  const SizedBox(height: 2),
-                  Text(
-                    manual ? 'Added by you (not detected by AI)' : 'AI suggested quantity: $suggested',
-                    style: const TextStyle(fontSize: 12, color: AppColors.n500),
-                  ),
-                ],
-              ),
-            ),
-            QuantityStepper(
-              quantity: scan.quantityOf(itemId),
-              onDecrement: () => scan.decrementQuantity(itemId),
-              onIncrement: () => scan.incrementQuantity(itemId),
-            ),
-          ],
-        ),
-        if (corrected && !manual)
-          Row(
-            children: [
-              const Icon(Icons.edit_outlined, size: 13, color: AppColors.gold),
-              const SizedBox(width: 4),
-              const Text('Edited by you', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.gold)),
-              const Spacer(),
-              TextButton(
-                onPressed: () => scan.resetQuantityToSuggestion(itemId),
-                child: const Text('Use AI suggestion', style: TextStyle(fontSize: 12, color: AppColors.green700)),
-              ),
-            ],
-          ),
-      ],
+Widget _photo({Uint8List? imageBytes, String? imageUrl, double? height, BoxFit fit = BoxFit.cover}) {
+  if (imageBytes != null) {
+    return Image.memory(
+      imageBytes,
+      height: height,
+      width: double.infinity,
+      fit: fit,
+      errorBuilder: (_, _, _) => Container(
+        height: height ?? 200,
+        color: AppColors.n100,
+        child: const Icon(Icons.broken_image_outlined, color: AppColors.n400),
+      ),
     );
   }
-}
-
-Widget _photo({File? image, String? imageUrl, double? height, BoxFit fit = BoxFit.cover}) {
-  if (image != null) return Image.file(image, height: height, width: double.infinity, fit: fit);
   if (imageUrl != null) {
     return AppNetworkImage(
       url: imageUrl,
@@ -375,21 +314,21 @@ Widget _photo({File? image, String? imageUrl, double? height, BoxFit fit = BoxFi
 /// The photo with each detection's box drawn on top. The server's boxes are
 /// in original-image pixels, so they are scaled by the reported image size.
 class _DetectionImage extends StatelessWidget {
-  const _DetectionImage({required this.image, required this.imageUrl, required this.result});
+  const _DetectionImage({required this.imageBytes, required this.imageUrl, required this.result});
 
-  final File? image;
+  final Uint8List? imageBytes;
   final String? imageUrl;
   final AIScanResult result;
 
   @override
   Widget build(BuildContext context) {
-    if (image == null && imageUrl == null) return const SizedBox.shrink();
+    if (imageBytes == null && imageUrl == null) return const SizedBox.shrink();
     final w = result.imageWidth;
     final h = result.imageHeight;
     if (w == null || h == null || w <= 0 || h <= 0) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(AppRadii.r16),
-        child: _photo(image: image, imageUrl: imageUrl, height: 220),
+        child: _photo(imageBytes: imageBytes, imageUrl: imageUrl, height: 220),
       );
     }
     return ConstrainedBox(
@@ -402,11 +341,8 @@ class _DetectionImage extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _photo(image: image, imageUrl: imageUrl, fit: BoxFit.fill),
-                CustomPaint(
-                  key: const Key('ai-detection-overlay'),
-                  painter: _DetectionBoxPainter(result.detections, w.toDouble(), h.toDouble()),
-                ),
+                _photo(imageBytes: imageBytes, imageUrl: imageUrl, fit: BoxFit.fill),
+                CustomPaint(key: const Key('ai-detection-overlay'), painter: _DetectionBoxPainter(result.detections, w.toDouble(), h.toDouble())),
               ],
             ),
           ),
@@ -430,12 +366,18 @@ class _DetectionBoxPainter extends CustomPainter {
     for (final d in detections) {
       final color = d.isResolved ? AppColors.green400 : AppColors.gold;
       final rect = Rect.fromLTWH(d.boundingBox.x * sx, d.boundingBox.y * sy, d.boundingBox.width * sx, d.boundingBox.height * sy);
-      canvas.drawRect(rect, Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2);
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
       final label = TextPainter(
-        text: TextSpan(text: ' ${d.index} ', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.n0)),
+        text: TextSpan(
+          text: ' ${d.index} ',
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.n0),
+        ),
         textDirection: TextDirection.ltr,
       )..layout();
       canvas.drawRect(Rect.fromLTWH(rect.left, rect.top, label.width, label.height), Paint()..color = color);
@@ -448,9 +390,9 @@ class _DetectionBoxPainter extends CustomPainter {
 }
 
 class _NoObjectsView extends StatelessWidget {
-  const _NoObjectsView({required this.image, required this.imageUrl, required this.onChooseManually, required this.onScanAnother});
+  const _NoObjectsView({required this.imageBytes, required this.imageUrl, required this.onChooseManually, required this.onScanAnother});
 
-  final File? image;
+  final Uint8List? imageBytes;
   final String? imageUrl;
   final VoidCallback onChooseManually;
   final VoidCallback onScanAnother;
@@ -459,10 +401,10 @@ class _NoObjectsView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        if (image != null || imageUrl != null)
+        if (imageBytes != null || imageUrl != null)
           ClipRRect(
             borderRadius: BorderRadius.circular(AppRadii.r16),
-            child: _photo(image: image, imageUrl: imageUrl, height: 200),
+            child: _photo(imageBytes: imageBytes, imageUrl: imageUrl, height: 200),
           ),
         const SizedBox(height: 16),
         const EcoCard(
@@ -473,7 +415,10 @@ class _NoObjectsView extends StatelessWidget {
                 children: [
                   Icon(Icons.info_outline, size: 18, color: AppColors.n500),
                   SizedBox(width: 8),
-                  Text('No Items Detected', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800)),
+                  Text(
+                    'No Items Detected',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.n800),
+                  ),
                 ],
               ),
               SizedBox(height: 10),

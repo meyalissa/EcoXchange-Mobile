@@ -7,8 +7,8 @@ import '../../../../core/widgets/filter_chip_row.dart';
 import '../../data/models/pickup_summary.dart';
 import '../providers/pickup_list_provider.dart';
 import '../widgets/pickup_summary_card.dart';
-import 'booking/pickup_booking_screen.dart';
 import 'pickup_detail_screen.dart';
+import 'scan/multi_image_scan_screen.dart';
 
 /// EcoXchange Mobile — My Pickups (Phase 4C.2 §7, restyled Phase 4C.3 to
 /// match `pickup-history.html`). Server-paginated — never fetches the
@@ -61,17 +61,18 @@ class _PickupListScreenState extends State<PickupListScreen> {
     }
   }
 
-  /// The single entry point into the booking flow (Stage 3) — deliberately
-  /// not duplicated anywhere else in the Customer app. Refreshes this
-  /// already-loaded list on a successful booking via the same cross-tab-
-  /// callback pattern the Dashboard's "See All Items" action uses (see
-  /// `PickupBookingScreen`'s docblock) — a pushed route can't reach this
-  /// provider directly, since it lives inside the tab shell's own
-  /// `MultiProvider`, which the pushed route isn't a descendant of.
+  /// Part A — scan-first, same as the Pickup Hub's own "Request New
+  /// Pickup" (see that screen's docblock): items are confirmed through the
+  /// real AI Scan flow before reaching the booking flow it eventually
+  /// hands off to. Refreshes this already-loaded list on a successful
+  /// booking via the same cross-tab-callback pattern the Dashboard's "See
+  /// All Items" action uses — a pushed route can't reach this provider
+  /// directly, since it lives inside the tab shell's own `MultiProvider`,
+  /// which the pushed route isn't a descendant of.
   void _requestNewPickup() {
     final provider = context.read<PickupListProvider>();
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PickupBookingScreen(onBookingComplete: provider.refresh)),
+      MaterialPageRoute(builder: (_) => MultiImageScanScreen(onBookingComplete: provider.refresh)),
     );
   }
 
@@ -85,7 +86,7 @@ class _PickupListScreenState extends State<PickupListScreen> {
         Positioned(
           right: 16,
           bottom: 16 + MediaQuery.of(context).padding.bottom,
-          child: _NewPickupFab(onTap: _requestNewPickup),
+          child: _NewPickupFab(key: const Key('request-new-pickup'), onTap: _requestNewPickup),
         ),
       ],
     );
@@ -147,7 +148,7 @@ class _PickupListScreenState extends State<PickupListScreen> {
 }
 
 class _NewPickupFab extends StatelessWidget {
-  const _NewPickupFab({required this.onTap});
+  const _NewPickupFab({super.key, required this.onTap});
 
   final VoidCallback onTap;
 

@@ -5,12 +5,15 @@ import '../../../../../core/theme/design_tokens.dart';
 import '../../../../../core/widgets/eco_card.dart';
 import '../../../../../core/widgets/eco_hero_header.dart';
 import '../reward_calculator_screen.dart';
-import 'scan_classify_screen.dart';
+import 'multi_image_scan_screen.dart';
 
 /// EcoXchange Mobile — Customer AI Scan tab (03_customer_ai_scan design).
 /// Two entry points into existing, real flows:
-///   * Scan Item → the existing Scan & Classify screen (Laravel → FastAPI →
-///     EfficientNet-B0, plus the multi-object bottle counter);
+///   * Scan Item → the multi-image scan session (Part C), which pushes the
+///     existing single-photo Scan & Classify screen (Laravel → FastAPI →
+///     EfficientNet-B0, plus the multi-object bottle counter) for each
+///     photo and lets the customer add more before booking — a single
+///     photo is simply the case where they stop after one;
 ///   * Manual Calculator → the reward calculator backed by Laravel's
 ///     `POST /customer/pickup/estimate`.
 /// Not shown, because no API provides them: a model accuracy figure and a
@@ -19,7 +22,7 @@ class AiScanHubScreen extends StatelessWidget {
   const AiScanHubScreen({super.key});
 
   void _openScan(BuildContext context) =>
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ScanClassifyScreen()));
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MultiImageScanScreen()));
 
   void _openCalculator(BuildContext context) =>
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RewardCalculatorScreen()));

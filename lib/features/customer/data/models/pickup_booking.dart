@@ -316,6 +316,7 @@ class ReviewResult {
     required this.totalWeightKg,
     required this.feasibility,
     required this.image,
+    required this.images,
   });
 
   factory ReviewResult.fromJson(Map<String, dynamic> json) {
@@ -328,6 +329,11 @@ class ReviewResult {
       totalWeightKg: (json['total_weight_kg'] as num).toDouble(),
       feasibility: json['feasibility'] != null ? PickupFeasibilityResult.fromJson(json['feasibility'] as Map<String, dynamic>) : null,
       image: json['image'] != null ? ReviewImage.fromJson(json['image'] as Map<String, dynamic>) : null,
+      // Every real image in this pickup's scan session (Part C), already
+      // returned by `POST /customer/pickup/review` alongside the
+      // backward-compatible singular `image` above — see
+      // PickupPreparationController::review()'s docblock.
+      images: (json['images'] as List<dynamic>?)?.map((e) => ReviewImage.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
     );
   }
 
@@ -339,4 +345,5 @@ class ReviewResult {
   final double totalWeightKg;
   final PickupFeasibilityResult? feasibility;
   final ReviewImage? image;
+  final List<ReviewImage> images;
 }

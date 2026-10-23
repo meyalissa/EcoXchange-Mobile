@@ -40,10 +40,13 @@ class EditPersonalInfoProvider extends ChangeNotifier {
   String _phoneNumber;
   String? _photoUrl;
 
-  /// A local file path while a newly-picked photo is uploading — lets the
-  /// screen show an immediate preview instead of a blank/stale avatar
-  /// during the network round-trip. Cleared on both success and failure.
-  String? _pickedImagePath;
+  /// The newly-picked photo's raw bytes while it's uploading — lets the
+  /// screen show an immediate preview (via `Image.memory`) instead of a
+  /// blank/stale avatar during the network round-trip. Cleared on both
+  /// success and failure. Bytes, not a file path: Flutter Web has no
+  /// usable file path for a picked image (`XFile.path` is a blob URL
+  /// there), and `Image.file`/`dart:io.File` don't work on web at all.
+  Uint8List? _pickedImageBytes;
   bool _isUploadingPhoto = false;
   ApiException? _photoError;
 
@@ -54,7 +57,7 @@ class EditPersonalInfoProvider extends ChangeNotifier {
   String get email => _email;
   String get phoneNumber => _phoneNumber;
   String? get photoUrl => _photoUrl;
-  String? get pickedImagePath => _pickedImagePath;
+  Uint8List? get pickedImageBytes => _pickedImageBytes;
   bool get isUploadingPhoto => _isUploadingPhoto;
   ApiException? get photoError => _photoError;
   bool get isSaving => _isSaving;
@@ -88,7 +91,8 @@ class EditPersonalInfoProvider extends ChangeNotifier {
     }
     if (file == null) return;
 
-    await _uploadPickedFile(file.path);
+    final bytes = await file.readAsBytes();
+    await _uploadPickedFile(bytes, file.name);
   }
 
   /// Test-only seam: `image_picker`'s real platform channel can't be driven
@@ -96,22 +100,22 @@ class EditPersonalInfoProvider extends ChangeNotifier {
   /// exact convention. [pickAndUploadPhoto] itself is exercised for real in
   /// manual device verification instead.
   @visibleForTesting
-  Future<void> debugUploadPhotoAt(String path) => _uploadPickedFile(path);
+  Future<void> debugUploadPhotoAt(Uint8List bytes, String filename) => _uploadPickedFile(bytes, filename);
 
-  Future<void> _uploadPickedFile(String path) async {
-    _pickedImagePath = path;
+  Future<void> _uploadPickedFile(Uint8List bytes, String filename) async {
+    _pickedImageBytes = bytes;
     _isUploadingPhoto = true;
     _photoError = null;
     notifyListeners();
 
     try {
-      final updated = await _repository.updatePhoto(path);
+      final updated = await _repository.updatePhoto(bytes, filename);
       _photoUrl = updated.profilePhotoUrl;
       _authProvider.applyUpdatedUser(updated);
     } on ApiException catch (e) {
       _photoError = e;
     } finally {
-      _pickedImagePath = null;
+      _pickedImageBytes = null;
       _isUploadingPhoto = false;
       notifyListeners();
     }

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -191,6 +193,11 @@ class _GoogleNearbyCentresMapState extends State<_GoogleNearbyCentresMap> {
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
+      // This map sits inside RecyclingCentreListScreen's page-level
+      // ListView, which has its own vertical-drag recognizer competing for
+      // the same gesture arena. Without an eager claim here, a pinch/pan
+      // that starts on the map was instead winning as a page scroll.
+      gestureRecognizers: {Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer())},
       onMapCreated: (controller) {
         _controller = controller;
         _fitBounds();

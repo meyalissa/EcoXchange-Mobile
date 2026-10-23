@@ -37,6 +37,11 @@ class _BookingAddressStepState extends State<BookingAddressStep> {
     );
     if (newAddress != null && mounted) {
       context.read<PickupBookingProvider>().addAddressAndSelect(newAddress);
+      if (!newAddress.hasCoordinates) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Address saved, but location could not be detected. Edit the address or try again.'),
+        ));
+      }
     }
   }
 

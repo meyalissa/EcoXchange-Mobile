@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +11,7 @@ import '../../../../../core/widgets/eco_button.dart';
 import '../../../../../core/widgets/eco_card.dart';
 import '../../../data/models/pickup_booking.dart';
 import '../../providers/pickup_booking_provider.dart';
+import '../../widgets/scan_photo_gallery.dart';
 import 'pickup_booking_success_screen.dart';
 
 /// EcoXchange Mobile — Pickup Booking Step 5 (Stage 3): real revalidation
@@ -53,8 +56,18 @@ class _BookingReviewStepState extends State<BookingReviewStep> {
     }
     if (file == null || !mounted) return;
 
+    final Uint8List bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      // Could not read the picked file (corrupted/unsupported) — handled
+      // the same, honestly, as "nothing picked"; no crash, no fake upload.
+      return;
+    }
+    if (!mounted) return;
+
     final booking = context.read<PickupBookingProvider>();
-    final ok = await booking.uploadImage(file.path);
+    final ok = await booking.uploadImage(bytes, file.name);
     if (ok && mounted) {
       await booking.loadReview();
     }
@@ -139,8 +152,12 @@ class _BookingReviewStepState extends State<BookingReviewStep> {
                       const SizedBox(height: 8),
                       _DetailRow(icon: Icons.location_on_outlined, label: 'Address', value: review.address.formatted),
                       _DetailRow(icon: Icons.storefront_outlined, label: 'Centre', value: review.centre?.name ?? '—'),
-                      _DetailRow(icon: Icons.calendar_today_outlined, label: 'Date', value: booking.pickupDate != null ? _formatDate(booking.pickupDate!) : '—'),
-                      _DetailRow(icon: Icons.access_time, label: 'Time', value: booking.pickupTimeSlot ?? '—'),
+                      if (booking.isPickupNow)
+                        _DetailRow(icon: Icons.bolt_outlined, label: 'Pickup', value: 'As soon as possible')
+                      else ...[
+                        _DetailRow(icon: Icons.calendar_today_outlined, label: 'Date', value: booking.pickupDate != null ? _formatDate(booking.pickupDate!) : '—'),
+                        _DetailRow(icon: Icons.access_time, label: 'Time', value: booking.pickupTimeLabel ?? '—'),
+                      ],
                       if (booking.notes != null && booking.notes!.trim().isNotEmpty) _DetailRow(icon: Icons.notes, label: 'Notes', value: booking.notes!.trim()),
                     ],
                   ),
@@ -150,49 +167,58 @@ class _BookingReviewStepState extends State<BookingReviewStep> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('PHOTO (OPTIONAL)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.green600, letterSpacing: 0.4)),
+                      Text(
+                        review.images.isNotEmpty ? 'PHOTOS' : 'PHOTO (OPTIONAL)',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.green600, letterSpacing: 0.4),
+                      ),
                       const SizedBox(height: 10),
-                      if (booking.imageError != null) ...[
-                        Text(booking.imageError!.message, style: const TextStyle(fontSize: 12, color: AppColors.red)),
-                        const SizedBox(height: 8),
-                      ],
-                      if (booking.uploadedImageUrl != null)
-                        Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(AppRadii.r12),
-                              child: AppNetworkImage(url: booking.uploadedImageUrl!, height: 160, width: double.infinity, fit: BoxFit.cover),
-                            ),
-                            Positioned(
-                              top: 6,
-                              right: 6,
-                              child: Material(
-                                color: Colors.black54,
-                                shape: const CircleBorder(),
-                                child: InkWell(
-                                  customBorder: const CircleBorder(),
-                                  onTap: booking.isUploadingImage ? null : _removePhoto,
-                                  child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.close, size: 16, color: Colors.white)),
+                      if (review.images.isNotEmpty)
+                        // The real scan-session photos (Task 1) — read-only
+                        // here; see ScanPhotoGallery's own docblock for why.
+                        ScanPhotoGallery(images: review.images)
+                      else ...[
+                        if (booking.imageError != null) ...[
+                          Text(booking.imageError!.message, style: const TextStyle(fontSize: 12, color: AppColors.red)),
+                          const SizedBox(height: 8),
+                        ],
+                        if (booking.uploadedImageUrl != null)
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(AppRadii.r12),
+                                child: AppNetworkImage(url: booking.uploadedImageUrl!, height: 160, width: double.infinity, fit: BoxFit.cover),
+                              ),
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Material(
+                                  color: Colors.black54,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: booking.isUploadingImage ? null : _removePhoto,
+                                    child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.close, size: 16, color: Colors.white)),
+                                  ),
                                 ),
                               ),
+                            ],
+                          )
+                        else
+                          OutlinedButton.icon(
+                            onPressed: booking.isUploadingImage ? null : _pickPhoto,
+                            icon: booking.isUploadingImage
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.add_a_photo_outlined, size: 18),
+                            label: Text(booking.isUploadingImage ? 'Uploading…' : 'Add a Photo'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.green600,
+                              side: const BorderSide(color: AppColors.green300, width: 1.5),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.r12)),
+                              minimumSize: const Size.fromHeight(44),
                             ),
-                          ],
-                        )
-                      else
-                        OutlinedButton.icon(
-                          onPressed: booking.isUploadingImage ? null : _pickPhoto,
-                          icon: booking.isUploadingImage
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.add_a_photo_outlined, size: 18),
-                          label: Text(booking.isUploadingImage ? 'Uploading…' : 'Add a Photo'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.green600,
-                            side: const BorderSide(color: AppColors.green300, width: 1.5),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.r12)),
-                            minimumSize: const Size.fromHeight(44),
                           ),
-                        ),
+                      ],
                     ],
                   ),
                 ),

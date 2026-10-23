@@ -4,16 +4,17 @@ import 'package:provider/provider.dart';
 import '../../../../core/api/api_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/design_tokens.dart';
-import '../../../../core/widgets/app_network_image.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/eco_app_bar.dart';
 import '../../../../core/widgets/eco_button.dart';
 import '../../../../core/widgets/gradient_header.dart';
+import '../../../../core/widgets/profile_avatar.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/auth_provider.dart';
 import '../../../auth/presentation/screens/edit_personal_info_screen.dart';
 import '../../data/models/address.dart';
 import '../../data/repositories/customer_address_repository.dart';
+import '../../../settings/presentation/screens/server_settings_screen.dart';
 import '../providers/dashboard_provider.dart';
 import '../providers/item_catalogue_provider.dart';
 import '../providers/recycling_centre_list_provider.dart';
@@ -133,7 +134,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             children: [
               Row(
                 children: [
-                  _ProfileAvatar(initials: user.name.isNotEmpty ? user.name[0].toUpperCase() : '?', photoUrl: user.profilePhotoUrl),
+                  ProfileAvatar(initials: initialOf(user.name), photoUrl: user.profilePhotoUrl, size: 92, borderWidth: 3),
                   const SizedBox(width: 18),
                   Expanded(
                     child: Column(
@@ -172,6 +173,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             _MenuRow(icon: Icons.location_on_outlined, title: 'Saved Addresses', subtitle: 'Your pickup addresses', onTap: () => _push(const SavedAddressesScreen())),
             _MenuRow(icon: Icons.storefront_outlined, title: 'Recycling Centres', subtitle: 'Centres near you', onTap: _openCentres),
             _MenuRow(icon: Icons.recycling_outlined, title: 'Items Guide', subtitle: 'What you can recycle', onTap: _openItems),
+            _MenuRow(
+              key: const Key('profile-server-connection'),
+              icon: Icons.dns_outlined,
+              title: 'Server Connection',
+              subtitle: 'Change the EcoXchange server address',
+              onTap: () => _push(const ServerSettingsScreen()),
+            ),
           ],
         ),
         Padding(
@@ -193,38 +201,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ProfileAvatar extends StatelessWidget {
-  const _ProfileAvatar({required this.initials, this.photoUrl});
-
-  final String initials;
-  final String? photoUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final url = photoUrl;
-    return Container(
-      width: 92,
-      height: 92,
-      clipBehavior: Clip.antiAlias,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.white.withValues(alpha: 0.15),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 3),
-      ),
-      child: url != null
-          ? AppNetworkImage(
-              url: url,
-              width: 92,
-              height: 92,
-              fit: BoxFit.cover,
-              errorBuilder: (context, _, _) => Text(initials, style: AppTheme.displayFont(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white)),
-            )
-          : Text(initials, style: AppTheme.displayFont(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white)),
     );
   }
 }
@@ -276,7 +252,7 @@ class _MenuCard extends StatelessWidget {
 }
 
 class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  const _MenuRow({super.key, required this.icon, required this.title, required this.subtitle, required this.onTap});
 
   final IconData icon;
   final String title;
@@ -336,7 +312,8 @@ class _InfoLine extends StatelessWidget {
 }
 
 /// The customer's saved addresses (`GET /customer/addresses`), with the
-/// existing Add Address flow. Read + add only from here.
+/// existing Add Address flow, plus edit and coordinate-retry (Fix Address
+/// Geolocation / Add Edit Existing Address task).
 class SavedAddressesScreen extends StatefulWidget {
   const SavedAddressesScreen({super.key});
 
@@ -348,6 +325,14 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
   List<AddressModel>? _addresses;
   ApiException? _error;
   bool _loading = true;
+
+  /// Address ids with a coordinate-retry currently in flight — disables
+  /// that one row's Retry action and shows a small spinner instead,
+  /// without blocking the rest of the list.
+  final Set<int> _retryingIds = {};
+
+  static const _locationNotDetectedMessage =
+      'Address saved, but location could not be detected. Edit the address or try again.';
 
   @override
   void initState() {
@@ -374,7 +359,64 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
 
   Future<void> _add() async {
     final created = await Navigator.of(context).push<AddressModel>(MaterialPageRoute(builder: (_) => const AddAddressScreen()));
-    if (created != null) _load();
+    if (created == null) return;
+    if (!created.hasCoordinates && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text(_locationNotDetectedMessage)));
+    }
+    _load();
+  }
+
+  Future<void> _edit(AddressModel address) async {
+    final updated = await Navigator.of(context).push<AddressModel>(
+      MaterialPageRoute(builder: (_) => AddAddressScreen(existing: address)),
+    );
+    if (updated == null) return;
+    if (!updated.hasCoordinates && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text(_locationNotDetectedMessage)));
+    }
+    _load();
+  }
+
+  /// Task 3 — retries location detection for an address that currently has
+  /// none, by re-submitting its EXACT existing fields through the same
+  /// `PUT /customer/addresses/{id}` edit endpoint a manual edit would use.
+  /// The server always re-geocodes on update and never touches
+  /// latitude/longitude in its response unless geocoding actually
+  /// succeeded this time (see AddressController::update()'s docblock), so
+  /// a failed retry can never overwrite a previously-valid coordinate —
+  /// and since nothing here changes the label/text/default, this is a
+  /// genuine coordinate-only retry, not a disguised edit.
+  Future<void> _retryGeocode(AddressModel address) async {
+    if (_retryingIds.contains(address.id)) return;
+    setState(() => _retryingIds.add(address.id));
+
+    try {
+      final repository = context.read<CustomerAddressRepository>();
+      final updated = await repository.updateAddress(
+        address.id,
+        label: address.label,
+        houseNo: address.houseNo,
+        streetName: address.streetName,
+        city: address.city,
+        postcode: address.postcode,
+        state: address.state,
+        isDefault: address.isDefault,
+      );
+      if (!mounted) return;
+      setState(() {
+        final list = _addresses;
+        if (list == null) return;
+        final i = list.indexWhere((a) => a.id == address.id);
+        if (i != -1) list[i] = updated;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(updated.hasCoordinates ? 'Location detected.' : 'Location still could not be detected. Try editing the address.'),
+      ));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _retryingIds.remove(address.id));
+    }
   }
 
   @override
@@ -401,10 +443,13 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, i) {
               final a = list[i];
+              final isRetrying = _retryingIds.contains(a.id);
               return Container(
+                key: Key('address-tile-${a.id}'),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(color: AppColors.n0, borderRadius: BorderRadius.circular(AppRadii.r16), boxShadow: AppShadows.sh1),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Icon(Icons.location_on_outlined, color: AppColors.green600),
                     const SizedBox(width: 12),
@@ -427,8 +472,37 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(a.formatted, style: const TextStyle(fontSize: 13, color: AppColors.n600, height: 1.35)),
+                          if (!a.hasCoordinates) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                const Icon(Icons.error_outline, size: 13, color: AppColors.red),
+                                const SizedBox(width: 4),
+                                const Text('No location detected yet', style: TextStyle(fontSize: 11, color: AppColors.red)),
+                                const SizedBox(width: 10),
+                                if (isRetrying)
+                                  const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                                else
+                                  InkWell(
+                                    key: Key('address-retry-${a.id}'),
+                                    onTap: () => _retryGeocode(a),
+                                    child: const Text(
+                                      'Retry',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.green700, decoration: TextDecoration.underline),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
+                    ),
+                    IconButton(
+                      key: Key('address-edit-${a.id}'),
+                      tooltip: 'Edit address',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.n500),
+                      onPressed: () => _edit(a),
                     ),
                   ],
                 ),

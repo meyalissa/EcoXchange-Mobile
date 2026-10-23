@@ -56,6 +56,14 @@ class PickupBookingProvider extends ChangeNotifier {
   /// (AI-suggested, possibly user-corrected) is selected with its quantity,
   /// still fully editable in the Items step. Lines with quantity <= 0 are
   /// skipped.
+  ///
+  /// [prefillScanLogIds] (Part C — multi-image scanning) is the full set of
+  /// scan log ids from every photo in a multi-image scan session, handed
+  /// off together with [prefillQuantities] (the combined quantities across
+  /// all those photos). When present it takes priority over the singular
+  /// [prefillScanLogId]/[prefillImageUrl] pair — a single-image scan is
+  /// just the case where this list has exactly one id, so no separate code
+  /// path exists for it.
   PickupBookingProvider(
     this._bookingRepo,
     this._addressRepo,
@@ -64,6 +72,7 @@ class PickupBookingProvider extends ChangeNotifier {
     List<PrefillItemQuantity>? prefillQuantities,
     int? prefillScanLogId,
     String? prefillImageUrl,
+    List<int>? prefillScanLogIds,
   }) {
     if (prefillItem != null) {
       setQuantity(prefillItem, 1);
@@ -72,7 +81,9 @@ class PickupBookingProvider extends ChangeNotifier {
       if (line.quantity > 0) setQuantity(line.item, line.quantity);
     }
     _hasAiSuggestedQuantities = prefillQuantities?.any((l) => l.quantity > 0) ?? false;
-    if (prefillScanLogId != null && prefillImageUrl != null) {
+    if (prefillScanLogIds != null && prefillScanLogIds.isNotEmpty) {
+      setExistingScans(scanLogIds: prefillScanLogIds, imageUrl: prefillImageUrl);
+    } else if (prefillScanLogId != null && prefillImageUrl != null) {
       setExistingScan(scanLogId: prefillScanLogId, imageUrl: prefillImageUrl);
     }
   }
@@ -297,14 +308,40 @@ class PickupBookingProvider extends ChangeNotifier {
     }
   }
 
-  // ── Step 4: Date / Time / Notes ────────────────────────────────────────
+  // ── Step 4: Booking mode / Date / Time / Notes ─────────────────────────
+  //
+  // Grab-style exact-time booking (Part A). `bookingMode` is `'now'` or
+  // `'scheduled'` — the exact two values `PickupTimeService::BOOKING_MODES`
+  // accepts server-side. For `'now'`, the server resolves the actual
+  // requested instant itself from its own Asia/Kuala_Lumpur clock (never a
+  // client-supplied value — see PickupTimeService::requestedDateTime()), so
+  // this provider doesn't collect or send a date/time at all for that mode.
+  // For `'scheduled'`, the customer picks one EXACT time (not a range) on
+  // a 15-minute increment via a scrolling wheel picker — [_pickupTime]'s
+  // date portion is meaningless, only hour/minute matter.
+  String _bookingMode = 'scheduled';
   DateTime? _pickupDate;
-  String? _pickupTimeSlot;
+  DateTime? _pickupTime;
   String? _notes;
 
+  String get bookingMode => _bookingMode;
+  bool get isPickupNow => _bookingMode == 'now';
   DateTime? get pickupDate => _pickupDate;
-  String? get pickupTimeSlot => _pickupTimeSlot;
+  DateTime? get pickupTime => _pickupTime;
   String? get notes => _notes;
+
+  /// The exact time in the `"h:mm a"` 12-hour format
+  /// `PickupTimeService::normalizeExactTime()` expects (e.g. `"10:00 AM"`),
+  /// or null if no time has been picked yet.
+  String? get pickupTimeLabel => _pickupTime != null ? formatExactTime(_pickupTime!) : null;
+
+  void setBookingMode(String mode) {
+    assert(mode == 'now' || mode == 'scheduled');
+    if (_bookingMode == mode) return;
+    _bookingMode = mode;
+    _reviewResult = null;
+    notifyListeners();
+  }
 
   void setPickupDate(DateTime date) {
     _pickupDate = DateTime(date.year, date.month, date.day);
@@ -312,8 +349,9 @@ class PickupBookingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setPickupTimeSlot(String slot) {
-    _pickupTimeSlot = slot;
+  /// [time]'s own date part is ignored — only hour/minute are used.
+  void setPickupTime(DateTime time) {
+    _pickupTime = time;
     _reviewResult = null;
     notifyListeners();
   }
@@ -322,26 +360,50 @@ class PickupBookingProvider extends ChangeNotifier {
     _notes = value;
   }
 
-  // ── Step 5: Optional photo ─────────────────────────────────────────────
+  /// `"10:00 AM"` etc — matches `PickupTimeService::normalizeExactTime()`'s
+  /// expected format exactly, so the server never has to reinterpret it.
+  static String formatExactTime(DateTime time) {
+    final period = time.hour >= 12 ? 'PM' : 'AM';
+    final hour12 = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour12:$minute $period';
+  }
+
+  // ── Step 5: Optional photo(s) (Part C — multi-image scanning) ──────────
+  //
+  // [_scanLogId] stays the FIRST image's id — every pre-existing single-
+  // image code path (the booking photo preview, [hasImage]) keeps working
+  // unchanged. [_scanLogIds] additionally holds every id for a multi-image
+  // scan session; when non-empty, [loadReview]/[submit] send the full list
+  // as `scan_log_ids` (the server de-duplicates against the singular id —
+  // see PickupPreparationController::store()). A single-image booking never
+  // populates [_scanLogIds] at all, so it is strictly a superset, not a
+  // separate path.
   int? _scanLogId;
+  List<int> _scanLogIds = const [];
   String? _uploadedImageUrl;
   bool _isUploadingImage = false;
   ApiException? _imageError;
 
   int? get scanLogId => _scanLogId;
+  List<int> get scanLogIds => List.unmodifiable(_scanLogIds);
   String? get uploadedImageUrl => _uploadedImageUrl;
   bool get isUploadingImage => _isUploadingImage;
   ApiException? get imageError => _imageError;
   bool get hasImage => _scanLogId != null;
 
-  Future<bool> uploadImage(String filePath) async {
+  /// [bytes] + [filename] rather than a filesystem path — Flutter Web has
+  /// no usable file path for a picked image (see
+  /// `ApiClient.postMultipart()`'s docblock).
+  Future<bool> uploadImage(Uint8List bytes, String filename) async {
     _isUploadingImage = true;
     _imageError = null;
     notifyListeners();
 
     try {
-      final result = await _bookingRepo.uploadImage(filePath);
+      final result = await _bookingRepo.uploadImage(bytes, filename);
       _scanLogId = result.scanLogId;
+      _scanLogIds = const [];
       _uploadedImageUrl = result.imageUrl;
       _reviewResult = null;
       return true;
@@ -356,6 +418,7 @@ class PickupBookingProvider extends ChangeNotifier {
 
   void clearImage() {
     _scanLogId = null;
+    _scanLogIds = const [];
     _uploadedImageUrl = null;
     _reviewResult = null;
     notifyListeners();
@@ -368,6 +431,19 @@ class PickupBookingProvider extends ChangeNotifier {
   /// the difference, by design (one real image lifecycle, not two).
   void setExistingScan({required int scanLogId, required String imageUrl}) {
     _scanLogId = scanLogId;
+    _scanLogIds = const [];
+    _uploadedImageUrl = imageUrl;
+    _reviewResult = null;
+    notifyListeners();
+  }
+
+  /// Part C — adopts every already-uploaded scan from a multi-image scan
+  /// session. [scanLogIds] is never empty here (callers check first); the
+  /// first id doubles as [scanLogId] so the existing single-photo preview
+  /// still has something to show.
+  void setExistingScans({required List<int> scanLogIds, String? imageUrl}) {
+    _scanLogIds = List.unmodifiable(scanLogIds);
+    _scanLogId = scanLogIds.first;
     _uploadedImageUrl = imageUrl;
     _reviewResult = null;
     notifyListeners();
@@ -395,6 +471,7 @@ class PickupBookingProvider extends ChangeNotifier {
         addressId: _selectedAddress!.id,
         centerId: _selectedCentre!.id,
         scanLogId: _scanLogId,
+        scanLogIds: _scanLogIds.isNotEmpty ? _scanLogIds : null,
       );
       return true;
     } on ApiException catch (e) {
@@ -415,13 +492,14 @@ class PickupBookingProvider extends ChangeNotifier {
   ApiException? get submitError => _submitError;
   PickupDetail? get submittedPickup => _submittedPickup;
 
+  /// 'now' never needs a date/time (the server supplies its own clock);
+  /// 'scheduled' needs both, exactly as [canProceedFromSchedule] requires.
   bool get canSubmit =>
       !_isSubmitting &&
       _quantities.isNotEmpty &&
       _selectedAddress != null &&
       _selectedCentre != null &&
-      _pickupDate != null &&
-      _pickupTimeSlot != null;
+      (_bookingMode == 'now' || (_pickupDate != null && _pickupTime != null));
 
   /// `_isSubmitting` doubles as the double-tap guard — a second call while
   /// one is already in flight is a no-op, never a second HTTP request.
@@ -437,10 +515,12 @@ class PickupBookingProvider extends ChangeNotifier {
         quantities: _quantities,
         addressId: _selectedAddress!.id,
         centerId: _selectedCentre!.id,
-        pickupDate: _formatDate(_pickupDate!),
-        pickupTime: _pickupTimeSlot!,
+        bookingMode: _bookingMode,
+        pickupDate: _bookingMode == 'scheduled' ? _formatDate(_pickupDate!) : null,
+        pickupTime: _bookingMode == 'scheduled' ? formatExactTime(_pickupTime!) : null,
         notes: _notes,
         scanLogId: _scanLogId,
+        scanLogIds: _scanLogIds.isNotEmpty ? _scanLogIds : null,
       );
       _submittedPickup = pickup;
       return pickup;
@@ -462,7 +542,7 @@ class PickupBookingProvider extends ChangeNotifier {
   bool get canProceedFromItems => hasSelectedItems;
   bool get canProceedFromAddress => _selectedAddress != null;
   bool get canProceedFromCentre => _selectedCentre != null && _selectedCentre!.eligible;
-  bool get canProceedFromSchedule => _pickupDate != null && _pickupTimeSlot != null;
+  bool get canProceedFromSchedule => _bookingMode == 'now' || (_pickupDate != null && _pickupTime != null);
 
   void _invalidateFromItems() {
     _estimate = null;

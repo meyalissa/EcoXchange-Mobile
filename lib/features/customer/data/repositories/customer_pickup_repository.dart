@@ -34,4 +34,20 @@ class CustomerPickupRepository {
     final data = await _api.get('/customer/pickups/$id');
     return PickupDetail.fromJson(data['pickup'] as Map<String, dynamic>);
   }
+
+  /// Task 3 — `POST /customer/pickups/{id}/cancel`. [reason] is one of
+  /// [pickupCancelReasons]'s keys (e.g. `'wrong_items'`); for
+  /// `'other'`, [reasonText] is the customer's own free-text description
+  /// (required by the server in that case — see that controller's
+  /// validation). Throws the real `ApiException` on any rejection,
+  /// including the 409 the server sends when the pickup is no longer
+  /// eligible by the time this request reaches it — never silently
+  /// swallowed, the caller decides how to show it.
+  Future<PickupDetail> cancelPickup(int id, {required String reason, String? reasonText}) async {
+    final data = await _api.post('/customer/pickups/$id/cancel', data: {
+      'reason': reason,
+      if (reasonText != null) 'reason_text': reasonText,
+    });
+    return PickupDetail.fromJson(data['pickup'] as Map<String, dynamic>);
+  }
 }

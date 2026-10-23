@@ -15,6 +15,7 @@ import '../../data/models/pickup_detail.dart';
 import '../../data/repositories/customer_pickup_repository.dart';
 import '../widgets/customer_tracking_map.dart';
 import '../widgets/pickup_status_style.dart';
+import '../widgets/scan_photo_gallery.dart';
 
 /// EcoXchange Mobile — Pickup Detail (Phase 4C.2 §8, restyled Phase 4C.3
 /// to match `pickup-details.html`). A single fetch-and-show screen (no
@@ -112,9 +113,7 @@ class _PickupDetailScreenState extends State<PickupDetailScreen> {
   /// state. Idempotent either way, so it's safe to call after every load.
   void _syncPolling() {
     final pickup = _pickup;
-    final shouldPoll = pickup != null &&
-        pickup.assignedRider != null &&
-        _pollableAssignmentStatuses.contains(pickup.assignedRider!.assignmentStatus);
+    final shouldPoll = pickup != null && pickup.assignedRider != null && _pollableAssignmentStatuses.contains(pickup.assignedRider!.assignmentStatus);
 
     if (shouldPoll) {
       _pollTimer ??= Timer.periodic(_pollInterval, (_) => _refreshSilently());
@@ -122,6 +121,30 @@ class _PickupDetailScreenState extends State<PickupDetailScreen> {
       _pollTimer?.cancel();
       _pollTimer = null;
     }
+  }
+
+  /// Task 3 — opens the reason sheet; on a real server-confirmed
+  /// cancellation, adopts the fresh [PickupDetail] it returns directly
+  /// (no extra round trip) and shows a success SnackBar. A rejection
+  /// (e.g. the 409 the server sends when the pickup stopped being
+  /// eligible between opening this screen and confirming) never silently
+  /// disappears — it's shown, and the pickup is reloaded so the screen
+  /// reflects its real current state rather than a stale snapshot.
+  Future<void> _openCancelDialog() async {
+    final pickup = _pickup;
+    if (pickup == null) return;
+
+    final result = await showModalBottomSheet<_CancelOutcome>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CancelPickupSheet(pickupId: pickup.id),
+    );
+    if (result == null || !mounted) return;
+
+    setState(() => _pickup = result.pickup);
+    _syncPolling();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pickup cancelled.')));
   }
 
   @override
@@ -134,17 +157,32 @@ class _PickupDetailScreenState extends State<PickupDetailScreen> {
         error: _error,
         data: _pickup,
         onRetry: _load,
-        builder: (context, pickup) => _PickupDetailContent(pickup: pickup, trackingMapBuilder: widget.trackingMapBuilder),
+        builder: (context, pickup) => _PickupDetailContent(pickup: pickup, trackingMapBuilder: widget.trackingMapBuilder, onCancelPickup: _openCancelDialog),
       ),
     );
   }
 }
 
+/// Matches the established pattern (`riderActionErrorText` in
+/// rider_action_runner.dart) rather than importing a rider-feature helper
+/// into the customer feature — the 409 case is the server's own message
+/// (set in PickupCancellationController), already specific enough on its
+/// own to show verbatim.
+String _cancelErrorText(ApiException e) {
+  return switch (e) {
+    NetworkException() => 'Unable to connect. Check your internet connection.',
+    TimeoutApiException() => 'The connection timed out. Please try again.',
+    ValidationException() => e.firstError ?? e.message,
+    _ => e.message,
+  };
+}
+
 class _PickupDetailContent extends StatelessWidget {
-  const _PickupDetailContent({required this.pickup, required this.trackingMapBuilder});
+  const _PickupDetailContent({required this.pickup, required this.trackingMapBuilder, required this.onCancelPickup});
 
   final PickupDetail pickup;
   final TrackingMapBuilder trackingMapBuilder;
+  final VoidCallback onCancelPickup;
 
   @override
   Widget build(BuildContext context) {
@@ -169,16 +207,25 @@ class _PickupDetailContent extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('PICKUP ID', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                        const Text(
+                          'PICKUP ID',
+                          style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700),
+                        ),
                         const SizedBox(height: 2),
-                        Text(pickup.reference, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                        Text(
+                          pickup.reference,
+                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                        ),
                       ],
                     ),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(AppRadii.rFull)),
-                    child: Text(style.label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                    child: Text(
+                      style.label,
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ],
               ),
@@ -200,21 +247,26 @@ class _PickupDetailContent extends StatelessWidget {
         // RIDER INFORMATION section's job, not duplicated here. ──────────
         if (pickup.assignedRider != null) _RiderLocationSection(pickup: pickup, mapBuilder: trackingMapBuilder),
 
-        // ── Uploaded image — real URL only, honest empty state ─────────────
+        // ── Uploaded photo(s) — real URLs only, honest empty state ──────────
+        // Display All Uploaded Photos task — root cause was read-side only:
+        // every scan-session photo was already linked to this pickup via
+        // scan_logs.pickup_id (PickupSubmissionService::submit()), but
+        // PickupDetailResource exposed just the first. [PickupDetail.images]
+        // now carries all of them; a single photo keeps the exact same big
+        // preview this card always had (never changed visually), and 2+
+        // photos reuse the same ScanPhotoGallery widget Review & Submit
+        // already uses (thumbnail grid, View all/Show less, tap-to-preview)
+        // rather than a second, parallel gallery implementation.
         _SectionCard(
           title: 'UPLOADED PHOTO',
-          child: pickup.imageUrl != null
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadii.r12),
-                  child: AppNetworkImage(
-                    url: pickup.imageUrl!,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => _imageFallback('Photo could not be loaded'),
-                  ),
-                )
-              : _imageFallback('No uploaded image'),
+          child: pickup.images.length > 1
+              ? ScanPhotoGallery(images: pickup.images)
+              : pickup.imageUrl != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadii.r12),
+                      child: AppNetworkImage(url: pickup.imageUrl!, height: 180, width: double.infinity, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => _imageFallback('Photo could not be loaded')),
+                    )
+                  : _imageFallback('No uploaded image'),
         ),
 
         if (pickup.items.isNotEmpty) _ItemsCollectedCard(items: pickup.items, total: reward),
@@ -223,6 +275,7 @@ class _PickupDetailContent extends StatelessWidget {
           title: 'PICKUP INFO',
           child: Column(
             children: [
+              _InfoRow('Booking Mode', pickup.isPickupNow ? 'Pickup Now' : 'Scheduled'),
               _InfoRow('Date', pickup.pickupDate ?? '—'),
               _InfoRow('Time', pickup.pickupTime ?? '—'),
               if (pickup.notes != null && pickup.notes!.isNotEmpty) _InfoRow('Notes', pickup.notes!),
@@ -235,7 +288,10 @@ class _PickupDetailContent extends StatelessWidget {
         ),
 
         if (pickup.address != null)
-          _SectionCard(title: 'PICKUP ADDRESS', child: Text(pickup.address!.formatted, style: const TextStyle(fontSize: 13, color: AppColors.n700))),
+          _SectionCard(
+            title: 'PICKUP ADDRESS',
+            child: Text(pickup.address!.formatted, style: const TextStyle(fontSize: 13, color: AppColors.n700)),
+          ),
 
         if (pickup.centre != null)
           _SectionCard(
@@ -243,15 +299,12 @@ class _PickupDetailContent extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(pickup.centre!.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.n800)),
-                if (pickup.centre!.address != null) ...[
-                  const SizedBox(height: 2),
-                  Text(pickup.centre!.address!, style: const TextStyle(fontSize: 12, color: AppColors.n500)),
-                ],
-                if (pickup.centre!.phone != null) ...[
-                  const SizedBox(height: 2),
-                  Text(pickup.centre!.phone!, style: const TextStyle(fontSize: 12, color: AppColors.n500)),
-                ],
+                Text(
+                  pickup.centre!.name,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.n800),
+                ),
+                if (pickup.centre!.address != null) ...[const SizedBox(height: 2), Text(pickup.centre!.address!, style: const TextStyle(fontSize: 12, color: AppColors.n500))],
+                if (pickup.centre!.phone != null) ...[const SizedBox(height: 2), Text(pickup.centre!.phone!, style: const TextStyle(fontSize: 12, color: AppColors.n500))],
               ],
             ),
           ),
@@ -261,7 +314,32 @@ class _PickupDetailContent extends StatelessWidget {
           child: pickup.assignedRider != null ? _RiderRow(rider: pickup.assignedRider!) : const Text('No rider assigned yet.', style: TextStyle(fontSize: 13, color: AppColors.n500)),
         ),
 
-        _SectionCard(title: 'STATUS TIMELINE', child: _StatusTimeline(status: pickup.status)),
+        _SectionCard(
+          title: 'STATUS TIMELINE',
+          child: _StatusTimeline(status: pickup.status, cancellationReason: pickup.cancellationReason),
+        ),
+
+        // Task 3 — only while the server's own eligibility rule
+        // (pending/approved status, no rider assigned) still holds per the
+        // last loaded snapshot; the server re-checks this for real anyway.
+        if (pickup.isCancellableByCustomer) ...[
+          const SizedBox(height: 4),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const Key('pickup-cancel-button'),
+              onPressed: onCancelPickup,
+              icon: const Icon(Icons.cancel_outlined, size: 18),
+              label: const Text('Cancel Pickup'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.red,
+                side: const BorderSide(color: AppColors.red, width: 1.5),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.r12)),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -302,12 +380,8 @@ class _RiderLocationSection extends StatelessWidget {
     final rider = pickup.assignedRider!;
     final address = pickup.address;
 
-    final pickupPoint = (address?.latitude != null && address?.longitude != null)
-        ? GeoPoint(address!.latitude!, address.longitude!)
-        : null;
-    final riderPoint = (rider.currentLatitude != null && rider.currentLongitude != null)
-        ? GeoPoint(rider.currentLatitude!, rider.currentLongitude!)
-        : null;
+    final pickupPoint = (address?.latitude != null && address?.longitude != null) ? GeoPoint(address!.latitude!, address.longitude!) : null;
+    final riderPoint = (rider.currentLatitude != null && rider.currentLongitude != null) ? GeoPoint(rider.currentLatitude!, rider.currentLongitude!) : null;
     final route = pickupPoint != null && riderPoint != null ? pickup.trackingRoute : null;
 
     return _SectionCard(
@@ -388,9 +462,15 @@ class _HeaderStat extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 2),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+        Text(
+          value,
+          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+        ),
       ],
     );
   }
@@ -418,13 +498,13 @@ class _RiderRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(rider.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.n800)),
+              Text(
+                rider.name,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.n800),
+              ),
               if (rider.vehicleType != null || rider.phoneNumber != null) ...[
                 const SizedBox(height: 2),
-                Text(
-                  [rider.vehicleType, rider.vehiclePlateNo, rider.phoneNumber].whereType<String>().join(' · '),
-                  style: const TextStyle(fontSize: 12, color: AppColors.n500),
-                ),
+                Text([rider.vehicleType, rider.vehiclePlateNo, rider.phoneNumber].whereType<String>().join(' · '), style: const TextStyle(fontSize: 12, color: AppColors.n500)),
               ],
             ],
           ),
@@ -453,12 +533,20 @@ class _ItemsCollectedCard extends StatelessWidget {
           Container(
             margin: const EdgeInsets.only(top: 4),
             padding: const EdgeInsets.only(top: 8),
-            decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.n200, width: 1.5))),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: AppColors.n200, width: 1.5)),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Total', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.n700)),
-                Text(total != null ? 'RM ${total!.toStringAsFixed(2)}' : '—', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.green600)),
+                const Text(
+                  'Total',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.n700),
+                ),
+                Text(
+                  total != null ? 'RM ${total!.toStringAsFixed(2)}' : '—',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.green600),
+                ),
               ],
             ),
           ),
@@ -480,7 +568,9 @@ class _ItemRow extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 9),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.n100))),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.n100)),
+      ),
       child: Row(
         children: [
           Container(
@@ -494,12 +584,18 @@ class _ItemRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${item.itemName} × ${item.quantity}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.n800)),
+                Text(
+                  '${item.itemName} × ${item.quantity}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.n800),
+                ),
                 if (weight != null) Text('${weight.toStringAsFixed(2)} kg', style: const TextStyle(fontSize: 11, color: AppColors.n500)),
               ],
             ),
           ),
-          Text(price != null ? 'RM ${price.toStringAsFixed(2)}' : '—', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.green600)),
+          Text(
+            price != null ? 'RM ${price.toStringAsFixed(2)}' : '—',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.green600),
+          ),
         ],
       ),
     );
@@ -512,31 +608,45 @@ class _ItemRow extends StatelessWidget {
 /// pickups don't fit this linear model (cancellation can happen from any
 /// stage), so they get their own single-state card instead.
 class _StatusTimeline extends StatelessWidget {
-  const _StatusTimeline({required this.status});
+  const _StatusTimeline({required this.status, this.cancellationReason});
 
   final String status;
 
-  static const _stages = <String, String>{
-    'pending': 'Submitted',
-    'approved': 'Approved',
-    'assigned': 'Rider Assigned',
-    'collecting': 'Collecting',
-    'completed': 'Completed',
-  };
+  /// Task 3 — the real reason the customer gave at cancellation time (or a
+  /// staff/RC cancellation's own, if ever set); null whenever the pickup
+  /// wasn't cancelled, or was cancelled before this field existed.
+  final String? cancellationReason;
+
+  static const _stages = <String, String>{'pending': 'Submitted', 'approved': 'Approved', 'assigned': 'Rider Assigned', 'collecting': 'Collecting', 'completed': 'Completed'};
 
   @override
   Widget build(BuildContext context) {
     if (status == 'cancelled') {
-      return Row(
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 24,
-            height: 24,
-            decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
-            child: const Icon(Icons.close, size: 14, color: Colors.white),
+          Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
+                child: const Icon(Icons.close, size: 14, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'This pickup was cancelled.',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.n800),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          const Text('This pickup was cancelled.', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.n800)),
+          if (cancellationReason != null && cancellationReason!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.only(left: 36),
+              child: Text('Reason: $cancellationReason', style: const TextStyle(fontSize: 12.5, color: AppColors.n500)),
+            ),
+          ],
         ],
       );
     }
@@ -545,14 +655,7 @@ class _StatusTimeline extends StatelessWidget {
     final currentIndex = keys.indexOf(status);
 
     return Column(
-      children: [
-        for (var i = 0; i < keys.length; i++)
-          _TimelineStep(
-            label: _stages[keys[i]]!,
-            reached: currentIndex >= 0 && i <= currentIndex,
-            isLast: i == keys.length - 1,
-          ),
-      ],
+      children: [for (var i = 0; i < keys.length; i++) _TimelineStep(label: _stages[keys[i]]!, reached: currentIndex >= 0 && i <= currentIndex, isLast: i == keys.length - 1)],
     );
   }
 }
@@ -587,7 +690,10 @@ class _TimelineStep extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: EdgeInsets.only(bottom: isLast ? 0 : 14, top: 2),
-              child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: reached ? AppColors.n800 : AppColors.n400)),
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: reached ? AppColors.n800 : AppColors.n400),
+              ),
             ),
           ),
         ],
@@ -610,10 +716,202 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.4, color: AppColors.green600)),
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.4, color: AppColors.green600),
+            ),
             const SizedBox(height: 10),
             child,
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Task 3 — what the cancel sheet hands back to the screen: null for a
+/// plain Cancel/Back (nothing attempted, nothing changed), or the real,
+/// server-confirmed fresh [PickupDetail] once cancellation actually
+/// succeeded. A REJECTED attempt is shown inline, inside the sheet itself
+/// (see [_CancelPickupSheetState._submitError]) rather than propagated out
+/// here — the customer's selection stays visible so they can see exactly
+/// why it failed without having to reopen the dialog and start over.
+class _CancelOutcome {
+  const _CancelOutcome(this.pickup);
+
+  final PickupDetail pickup;
+}
+
+/// The required reason dropdown (+ free-text for "Other"), Cancel/Confirm
+/// actions, a submitting state that disables Confirm (prevents a repeated
+/// tap from firing a second request), and inline error feedback that keeps
+/// the sheet open with the customer's already-made selection intact —
+/// matching the task's explicit requirements for this dialog.
+class _CancelPickupSheet extends StatefulWidget {
+  const _CancelPickupSheet({required this.pickupId});
+
+  final int pickupId;
+
+  @override
+  State<_CancelPickupSheet> createState() => _CancelPickupSheetState();
+}
+
+class _CancelPickupSheetState extends State<_CancelPickupSheet> {
+  String? _reason;
+  final _reasonTextController = TextEditingController();
+  bool _submitting = false;
+  String? _validationError;
+  ApiException? _submitError;
+
+  @override
+  void dispose() {
+    _reasonTextController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _confirm() async {
+    if (_submitting) return; // the double-submission guard
+
+    final reason = _reason;
+    if (reason == null) {
+      setState(() => _validationError = 'Please choose a reason.');
+      return;
+    }
+    final reasonText = _reasonTextController.text.trim();
+    if (reason == 'other' && reasonText.isEmpty) {
+      setState(() => _validationError = 'Please describe your reason.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _validationError = null;
+      _submitError = null;
+    });
+
+    try {
+      final repository = context.read<CustomerPickupRepository>();
+      final updated = await repository.cancelPickup(widget.pickupId, reason: reason, reasonText: reason == 'other' ? reasonText : null);
+      if (!mounted) return;
+      Navigator.of(context).pop(_CancelOutcome(updated));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // Stays open — the customer's selection is preserved, and they can
+      // see exactly why it was rejected (e.g. a 409 because a rider was
+      // just assigned) before deciding whether to back out.
+      setState(() {
+        _submitting = false;
+        _submitError = e;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          decoration: BoxDecoration(color: AppColors.n0, borderRadius: BorderRadius.circular(AppRadii.r20)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Cancel Pickup',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.n800),
+              ),
+              const SizedBox(height: 4),
+              const Text('Let us know why — this helps us improve.', style: TextStyle(fontSize: 12.5, color: AppColors.n500)),
+              const SizedBox(height: 16),
+              const Text(
+                'REASON',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.n500, letterSpacing: 0.4),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.n200),
+                  borderRadius: BorderRadius.circular(AppRadii.r12),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    key: const Key('cancel-reason-dropdown'),
+                    isExpanded: true,
+                    value: _reason,
+                    hint: const Text('Select a reason', style: TextStyle(fontSize: 13, color: AppColors.n500)),
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: AppColors.n500),
+                    style: const TextStyle(fontSize: 13, color: AppColors.n800, fontWeight: FontWeight.w600),
+                    items: [for (final entry in pickupCancelReasons.entries) DropdownMenuItem<String>(value: entry.key, child: Text(entry.value))],
+                    onChanged: _submitting
+                        ? null
+                        : (value) => setState(() {
+                            _reason = value;
+                            _validationError = null;
+                          }),
+                  ),
+                ),
+              ),
+              if (_reason == 'other') ...[
+                const SizedBox(height: 12),
+                TextField(
+                  key: const Key('cancel-reason-text'),
+                  controller: _reasonTextController,
+                  enabled: !_submitting,
+                  maxLines: 3,
+                  maxLength: 500,
+                  decoration: const InputDecoration(hintText: 'Please specify your reason', border: OutlineInputBorder(), isDense: true),
+                ),
+              ],
+              if (_validationError != null) ...[const SizedBox(height: 8), Text(_validationError!, style: const TextStyle(fontSize: 12, color: AppColors.red))],
+              if (_submitError != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: AppColors.redLight, borderRadius: BorderRadius.circular(AppRadii.r12)),
+                  child: Text(_cancelErrorText(_submitError!), style: const TextStyle(fontSize: 12, color: AppColors.red)),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      key: const Key('cancel-dialog-back'),
+                      onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.n600,
+                        side: const BorderSide(color: AppColors.n200, width: 1.5),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.r12)),
+                      ),
+                      child: const Text('Back'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      key: const Key('cancel-dialog-confirm'),
+                      onPressed: _submitting ? null : _confirm,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.red,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: AppColors.red.withValues(alpha: 0.6),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.r12)),
+                        elevation: 0,
+                      ),
+                      child: _submitting ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Confirm Cancellation', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -633,8 +931,13 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 130, child: Text(label, style: const TextStyle(fontSize: 12, color: AppColors.n500))),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 13, color: AppColors.n800))),
+          SizedBox(
+            width: 130,
+            child: Text(label, style: const TextStyle(fontSize: 12, color: AppColors.n500)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 13, color: AppColors.n800)),
+          ),
         ],
       ),
     );
